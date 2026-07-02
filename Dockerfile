@@ -37,9 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 # Instalar el paquete (solo codigo; deps ya instaladas).
-# README.md es necesario porque pyproject lo referencia como readme del paquete.
 COPY src ./src
-COPY README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 

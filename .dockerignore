@@ -16,9 +16,8 @@ venv
 Dockerfile
 compose.yaml
 
-# Docs y markdown (pero conservar README.md: pyproject lo necesita para el build)
+# Docs y markdown (no se necesitan en la imagen)
 *.md
-!README.md
 
 # Tests y datos generados en runtime
 tests/
