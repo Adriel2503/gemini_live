@@ -1,0 +1,32 @@
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Entornos y secretos
+.venv
+venv
+.env
+
+# Git y meta
+.git
+.gitignore
+.dockerignore
+Dockerfile
+compose.yaml
+
+# Docs y markdown (pero conservar README.md: pyproject lo necesita para el build)
+*.md
+!README.md
+
+# Tests y datos generados en runtime
+tests/
+metrics/
+recordings/
+*.wav
+
+# Caches de herramientas
+.pytest_cache
+.mypy_cache
+.ruff_cache
