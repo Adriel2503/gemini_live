@@ -140,7 +140,7 @@ class GeminiLiveAdapter:
     def note_event(self, summary: EventSummary) -> None:
         if summary.new_handle and summary.new_handle != self._session_handle:
             self._session_handle = summary.new_handle
-            logger.info('[session] updated resumption handle resumable=%s', summary.resumable)
+            logger.debug('[session] updated resumption handle resumable=%s', summary.resumable)
         if summary.go_away:
             self._refresh_requested = True
             logger.warning('[session] go_away received; will reconnect after current turn')

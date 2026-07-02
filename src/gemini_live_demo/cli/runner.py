@@ -170,14 +170,14 @@ class DemoRunner:
                     queue_stats['max_size'] = max(queue_stats['max_size'], queue_size)
                     queue_delay_ms = queue_size * self.settings.chunk_ms
                     if queue_size >= self.settings.audio_queue_warn_chunks:
-                        logger.warning(
+                        logger.debug(
                             '[mic] queue backlog queue_size=%d queue_delay_ms=%d dropped_chunks=%d',
                             queue_size,
                             queue_delay_ms,
                             dropped_chunks['count'],
                         )
                     if sent_chunks % self.settings.audio_queue_log_every_chunks == 0:
-                        logger.info(
+                        logger.debug(
                             '[mic] streaming chunks_sent=%d queue_size=%d queue_delay_ms=%d dropped_chunks=%d send_avg_ms=%.2f send_max_ms=%.2f send_over_budget=%d model_speaking=%s',
                             sent_chunks,
                             queue_size,
@@ -220,7 +220,7 @@ class DemoRunner:
                             vad_stats['start_count'] += 1
                         if vad_type and ('END' in vad_type or 'EOS' in vad_type):
                             vad_stats['end_count'] += 1
-                        logger.info('[vad] type=%s offset=%s', vad_type, summary.voice_activity_offset)
+                        logger.debug('[vad] type=%s offset=%s', vad_type, summary.voice_activity_offset)
                     if summary.interrupted:
                         interrupted_seen = True
                         stream_stats['model_speaking'] = False

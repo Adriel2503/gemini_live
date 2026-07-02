@@ -63,7 +63,7 @@ def capture_until_enter(settings: Settings) -> bytes:
 
     def callback(indata, frames_count, time_info, status):  # noqa: ANN001
         if status:
-            console.print(f'[yellow]{status}[/yellow]')
+            logger.debug('[mic] %s', status)
         if stop['value']:
             raise sd.CallbackStop()
         chunks.append(float32_to_int16(np.asarray(indata, dtype=np.float32).copy()))

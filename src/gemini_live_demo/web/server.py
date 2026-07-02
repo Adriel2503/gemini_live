@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
@@ -74,6 +75,8 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
     await ws.send_json({'type': 'status', 'state': 'ready'})
 
     stop = asyncio.Event()
+    # Estado compartido entre las dos tareas, solo para los logs de validación.
+    state = {'last_input_at': None, 'input_logged': False}
 
     async def pump_up() -> None:
         """Reenvia el audio que llega del navegador hacia Gemini."""
@@ -84,6 +87,10 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
                     break
                 data = message.get('bytes')
                 if data:
+                    state['last_input_at'] = time.perf_counter()
+                    if not state['input_logged']:  # solo la primera vez
+                        state['input_logged'] = True
+                        logger.info('[web] audio input started (mic flowing)')
                     await adapter.send_audio_chunk(session, data)
         except WebSocketDisconnect:
             pass
@@ -92,6 +99,7 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
 
     async def pump_down() -> None:
         """Reenvia el audio/estado de Gemini hacia el navegador."""
+        turn_audio_started = False
         try:
             while not stop.is_set():
                 saw_event = False
@@ -106,10 +114,21 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
                         await ws.send_json({'type': 'interrupted'})
                     if summary.text:
                         await ws.send_json({'type': 'text', 'text': summary.text})
+                    if summary.audio_chunks and not turn_audio_started:
+                        # Primer chunk de respuesta del turno: latencia desde el
+                        # último audio del usuario (proxy de "tiempo de reacción").
+                        turn_audio_started = True
+                        if state['last_input_at'] is not None:
+                            latency_ms = (time.perf_counter() - state['last_input_at']) * 1000
+                            logger.info('[web] audio response started latency_ms=%.0f', latency_ms)
+                        else:
+                            logger.info('[web] audio response started')
                     for chunk in summary.audio_chunks:
                         await ws.send_bytes(chunk)
                     if summary.generation_complete or summary.turn_complete:
                         await ws.send_json({'type': 'turn_complete'})
+                        logger.info('[web] turn complete')
+                        turn_audio_started = False
                     if summary.go_away:
                         logger.warning('[web] go_away received; closing session')
                         await ws.send_json({'type': 'status', 'state': 'go_away'})
@@ -160,6 +179,7 @@ def create_app() -> FastAPI:
     @app.websocket('/ws')
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
+        logger.info('[web] client connected')
         settings = Settings.from_env()
         if not settings.api_key:
             await ws.send_json({'type': 'error', 'message': 'Falta GEMINI_API_KEY en el servidor.'})
