@@ -116,5 +116,18 @@ def run(
     asyncio.run(DemoRunner(adapter, settings).run())
 
 
+@app.command()
+def serve(
+    host: str = typer.Option('127.0.0.1', help='Host donde escucha el servidor web.'),
+    port: int = typer.Option(8000, help='Puerto del servidor web.'),
+    reload: bool = typer.Option(False, help='Recarga en caliente (desarrollo).'),
+) -> None:
+    """Arranca la interfaz web (FastAPI + WebSocket) para conversar desde el navegador."""
+    from gemini_live_demo.web.server import run_server
+
+    console.print(f'Servidor web en http://{host}:{port}  (Ctrl+C para salir)')
+    run_server(host=host, port=port, reload=reload)
+
+
 if __name__ == '__main__':
     app()

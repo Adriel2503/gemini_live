@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
-# Imagen de la demo de voz Gemini Live.
+# Imagen del servidor web de Gemini Live (FastAPI + WebSocket).
 # Inspirada en el Dockerfile de agente_gkm: uv + build reproducible + usuario no-root.
-# Diferencias: es un CLI (no un servidor web), sin healthcheck ni puerto expuesto.
+#
+# Nota: esta imagen corre SOLO el servidor web (gemini-live-web), que NO usa
+# microfono/altavoz locales (el audio va por WebSocket desde el navegador).
+# Por eso NO instala PortAudio y NO necesita /dev/snd: ideal para Dokploy.
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 
@@ -10,12 +13,6 @@ ENV PYTHONUNBUFFERED=1
 ENV UV_LINK_MODE=copy
 
 WORKDIR /app
-
-# PortAudio: sounddevice (wrapper CFFI) lo necesita en runtime para abrir
-# el microfono y los altavoces. Sin esta lib, "import sounddevice" falla.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libportaudio2 \
-    && rm -rf /var/lib/apt/lists/*
 
 # Usuario no privilegiado (buenas practicas)
 ARG UID=10001
@@ -36,15 +33,17 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
-# Instalar el paquete (solo codigo; deps ya instaladas).
+# Instalar el paquete + servir el frontend estatico.
 COPY src ./src
+COPY frontend ./frontend
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 USER appuser
 
-# Por defecto muestra la ayuda (no revienta si el contenedor no tiene audio).
-# Para conversar:  docker run --rm -it --device /dev/snd <imagen> run
-# (el passthrough de audio /dev/snd solo funciona con host Linux)
-ENTRYPOINT [".venv/bin/gemini-live-demo"]
-CMD ["--help"]
+# El servidor escucha en 0.0.0.0:8000 (ver web/server.py:main()).
+ENV HOST=0.0.0.0
+ENV PORT=8000
+EXPOSE 8000
+
+ENTRYPOINT [".venv/bin/gemini-live-web"]

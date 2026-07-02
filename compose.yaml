@@ -1,20 +1,11 @@
 services:
-  gemini-live-demo:
+  gemini-live-web:
     build:
       context: .
     # Variables desde .env (GEMINI_API_KEY, GEMINI_MODEL, etc.)
     env_file:
       - .env
-    # CLI interactivo: necesita stdin/tty para los prompts de "Enter".
-    stdin_open: true
-    tty: true
-    # No es un daemon; no reiniciar automaticamente.
-    restart: "no"
-    # Sobrescribe el CMD por defecto (--help) para arrancar la conversacion.
-    command: ["run"]
-    # --- Audio del host (DESCOMENTAR solo en host Linux) ---
-    # sounddevice necesita acceso al hardware de audio via ALSA. Esto solo
-    # funciona con Docker sobre Linux; en Docker Desktop (Windows/Mac) no hay
-    # passthrough directo del microfono y la conversacion por voz no operara.
-    # devices:
-    #   - "/dev/snd:/dev/snd"
+    # El servidor escucha en el puerto 8000 dentro del contenedor.
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
