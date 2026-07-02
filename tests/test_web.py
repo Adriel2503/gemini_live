@@ -104,6 +104,20 @@ def test_bridge_gemini_to_browser():
     assert ws.sent_bytes == [b'PCMDATA']
 
 
+def test_models_endpoint_lists_allowlist_and_default():
+    """``/models`` expone la allowlist y un default válido."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import _ALLOWED_MODEL_IDS, app
+
+    res = TestClient(app).get('/models')
+    assert res.status_code == 200
+    data = res.json()
+    ids = {m['id'] for m in data['models']}
+    assert ids == _ALLOWED_MODEL_IDS
+    assert data['default'] in _ALLOWED_MODEL_IDS
+
+
 def test_bridge_browser_to_gemini():
     """El audio del navegador se reenvia a Gemini y el disconnect cierra el puente."""
     adapter = _FakeAdapter(events=[], block_receive=True)  # Gemini calla

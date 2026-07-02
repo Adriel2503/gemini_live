@@ -31,9 +31,14 @@ uv run gemini-live-demo serve            # http://127.0.0.1:8000
 uv run gemini-live-web
 ```
 
-Abre `http://127.0.0.1:8000`, aprieta **Iniciar conversación**, permite el
-micrófono y habla. El servidor Python nunca expone la `GEMINI_API_KEY`: el
-navegador solo intercambia audio por WebSocket.
+Abre `http://127.0.0.1:8000`, elige el **modelo** en el desplegable, aprieta
+**Iniciar conversación**, permite el micrófono y habla. El servidor Python
+nunca expone la `GEMINI_API_KEY`: el navegador solo intercambia audio por
+WebSocket.
+
+El modelo se elige por sesión desde la UI (se recuerda en el navegador); el
+`GEMINI_MODEL` del entorno queda como default. La lista de modelos elegibles
+está en `ALLOWED_MODELS` (allowlist server-side en `web/server.py`).
 
 > **Micrófono y HTTPS:** el navegador solo permite el micrófono en `localhost`
 > o bajo **HTTPS**. En producción hay que servir la web por HTTPS (Dokploy lo

@@ -28,6 +28,12 @@
     #toggle { background: #238636; color: #fff; }
     #toggle.on { background: #da3633; }
     button:disabled { opacity: .5; cursor: not-allowed; }
+    label { font-size: 13px; color: #8b949e; flex: 0 0 auto; }
+    select {
+      flex: 1; background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+      border-radius: 8px; padding: 9px 10px; font-size: 14px; cursor: pointer;
+    }
+    select:disabled { opacity: .5; cursor: not-allowed; }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #6e7681; flex: 0 0 auto; }
     .dot.live { background: #3fb950; box-shadow: 0 0 10px #3fb950; }
     .dot.speaking { background: #58a6ff; box-shadow: 0 0 10px #58a6ff; }
@@ -47,6 +53,10 @@
   <div class="card">
     <h1>Gemini Live — Demo de voz</h1>
     <div class="sub">Aprieta el botón, permite el micrófono y habla. Gemini responde por voz.</div>
+    <div class="row">
+      <label for="model">Modelo</label>
+      <select id="model"><option>Cargando…</option></select>
+    </div>
     <div class="row">
       <button id="toggle">Iniciar conversación</button>
       <span class="dot" id="dot"></span>

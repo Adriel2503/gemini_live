@@ -12,6 +12,9 @@ const toggleBtn = document.getElementById('toggle');
 const dot = document.getElementById('dot');
 const stateEl = document.getElementById('state');
 const logEl = document.getElementById('log');
+const modelSel = document.getElementById('model');
+
+const MODEL_STORAGE_KEY = 'gemini_live_model';
 
 let running = false;
 let ws = null;
@@ -76,8 +79,34 @@ function stopPlayback() {
 
 function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${location.host}/ws`;
+  const model = encodeURIComponent(modelSel.value || '');
+  return `${proto}://${location.host}/ws?model=${model}`;
 }
+
+async function loadModels() {
+  try {
+    const res = await fetch('/models');
+    const data = await res.json();
+    const saved = localStorage.getItem(MODEL_STORAGE_KEY);
+    modelSel.innerHTML = '';
+    for (const m of data.models) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.label;
+      modelSel.appendChild(opt);
+    }
+    // Preselecciona: última elección guardada (si sigue siendo válida) o el default.
+    const valid = data.models.some((m) => m.id === saved);
+    modelSel.value = valid ? saved : data.default;
+  } catch (err) {
+    modelSel.innerHTML = '<option>Error cargando modelos</option>';
+    log('No se pudieron cargar los modelos: ' + err.message, 'log-err');
+  }
+}
+
+modelSel.addEventListener('change', () => {
+  localStorage.setItem(MODEL_STORAGE_KEY, modelSel.value);
+});
 
 async function start() {
   try {
@@ -133,12 +162,15 @@ async function start() {
   ws.onerror = () => log('Error de WebSocket.', 'log-err');
 
   running = true;
+  modelSel.disabled = true;
+  log('Modelo: ' + modelSel.value, 'log-sys');
   toggleBtn.textContent = 'Detener';
   toggleBtn.classList.add('on');
 }
 
 function stop() {
   running = false;
+  modelSel.disabled = false;
   toggleBtn.textContent = 'Iniciar conversación';
   toggleBtn.classList.remove('on');
   setState('Desconectado', null);
@@ -157,3 +189,5 @@ toggleBtn.addEventListener('click', () => {
   if (running) stop();
   else start();
 });
+
+loadModels();

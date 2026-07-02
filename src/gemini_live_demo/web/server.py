@@ -20,6 +20,7 @@ import asyncio
 import logging
 import os
 from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -31,6 +32,14 @@ from gemini_live_demo.core.events import summarize_event
 from gemini_live_demo.core.session import GeminiLiveAdapter
 
 logger = logging.getLogger('gemini_live_demo')
+
+# Modelos que el cliente puede elegir desde la UI. Allowlist server-side: el
+# navegador no puede pedir un modelo arbitrario (evita typos/abuso).
+ALLOWED_MODELS = [
+    {'id': 'gemini-2.5-flash-native-audio-latest', 'label': 'Gemini 2.5 Flash · native audio (recomendado)'},
+    {'id': 'gemini-3.1-flash-live-preview', 'label': 'Gemini 3.1 Flash Live · preview (sin validar)'},
+]
+_ALLOWED_MODEL_IDS = {m['id'] for m in ALLOWED_MODELS}
 
 
 def _find_frontend_dir() -> Path:
@@ -141,6 +150,13 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         return {'status': 'ok'}
 
+    @app.get('/models')
+    async def models() -> dict:
+        """Modelos elegibles + el default (del entorno, si es válido)."""
+        env_model = Settings.from_env().model
+        default = env_model if env_model in _ALLOWED_MODEL_IDS else ALLOWED_MODELS[0]['id']
+        return {'models': ALLOWED_MODELS, 'default': default}
+
     @app.websocket('/ws')
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
@@ -149,6 +165,12 @@ def create_app() -> FastAPI:
             await ws.send_json({'type': 'error', 'message': 'Falta GEMINI_API_KEY en el servidor.'})
             await ws.close()
             return
+        # Modelo elegido en la UI (?model=...). Solo se acepta si está en la
+        # allowlist; si no, se usa el del entorno.
+        requested = ws.query_params.get('model')
+        if requested and requested in _ALLOWED_MODEL_IDS:
+            settings = replace(settings, model=requested)
+        logger.info('[web] session model=%s (requested=%s)', settings.model, requested or 'default')
         adapter = GeminiLiveAdapter(
             api_key=settings.api_key,
             model=settings.model,
