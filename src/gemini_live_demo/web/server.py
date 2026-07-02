@@ -51,7 +51,7 @@ def _find_frontend_dir() -> Path:
 FRONTEND_DIR = _find_frontend_dir()
 
 
-async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter, settings: Settings) -> None:
+async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
     """Puente bidireccional navegador <-> Gemini para una conexion.
 
     Corre dos tareas concurrentes (como el bucle continuo del CLI):
@@ -144,7 +144,7 @@ def create_app() -> FastAPI:
     @app.websocket('/ws')
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
-        settings = Settings()
+        settings = Settings.from_env()
         if not settings.api_key:
             await ws.send_json({'type': 'error', 'message': 'Falta GEMINI_API_KEY en el servidor.'})
             await ws.close()
@@ -157,7 +157,7 @@ def create_app() -> FastAPI:
             mock=False,
         )
         try:
-            await _bridge(ws, adapter, settings)
+            await _bridge(ws, adapter)
         except WebSocketDisconnect:
             logger.info('[web] client disconnected')
         except Exception as exc:  # noqa: BLE001 - reportar al cliente y cerrar limpio

@@ -53,7 +53,7 @@ def list_devices_cmd() -> None:
 @app.command('test-mic')
 def test_mic_cmd(seconds: int = typer.Option(5, min=1, help='Duracion en segundos.')) -> None:
     configure_logging()
-    settings = Settings()
+    settings = Settings.from_env()
     frames: list[np.ndarray] = []
     q: queue.Queue[np.ndarray] = queue.Queue()
 
@@ -96,7 +96,7 @@ def run(
     record_output_wav: bool = typer.Option(False, help='Diagnostico: guarda el audio de Gemini en WAV sin reproducirlo.'),
 ) -> None:
     configure_logging()
-    settings = Settings()
+    settings = Settings.from_env()
     if manual:
         settings = replace(settings, continuous_mode=False)
     if no_playback:

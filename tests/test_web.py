@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from gemini_live_demo.core.config import Settings
 from gemini_live_demo.web.server import _bridge
 
 
@@ -97,7 +96,7 @@ def test_bridge_gemini_to_browser():
     adapter = _FakeAdapter(events)
     ws = _FakeWS(block_receive=True)  # el navegador no envia nada; bloquea
 
-    asyncio.run(_bridge(ws, adapter, Settings()))
+    asyncio.run(_bridge(ws, adapter))
 
     assert any(m.get('type') == 'status' and m.get('state') == 'ready' for m in ws.sent_json), ws.sent_json
     assert any(m.get('type') == 'text' and m.get('text') == 'hola' for m in ws.sent_json)
@@ -114,7 +113,7 @@ def test_bridge_browser_to_gemini():
         {'type': 'websocket.disconnect'},
     ])
 
-    asyncio.run(_bridge(ws, adapter, Settings()))
+    asyncio.run(_bridge(ws, adapter))
 
     assert adapter.sent_audio == [b'chunk1', b'chunk2']
 
