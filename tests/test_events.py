@@ -1,4 +1,4 @@
-"""Tests del parsing de eventos (``gemini_live_demo.events``).
+"""Tests del parsing de eventos (``gemini_live_demo.core.events``).
 
 Cubre las dos rutas de ``summarize_event``: el dict crudo del transporte
 y el objeto tipado del SDK. Determinista, sin red. Ejecutable con pytest o
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from gemini_live_demo.events import summarize_event
+from gemini_live_demo.core.events import summarize_event
 
 
 # --- Ruta dict --------------------------------------------------------------

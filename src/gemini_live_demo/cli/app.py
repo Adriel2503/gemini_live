@@ -21,10 +21,10 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import Progress
 
-from gemini_live_demo.audio_io import list_devices
-from gemini_live_demo.config import Settings
-from gemini_live_demo.runner import DemoRunner
-from gemini_live_demo.session import GeminiLiveAdapter
+from gemini_live_demo.cli.audio_io import list_devices
+from gemini_live_demo.core.config import Settings
+from gemini_live_demo.cli.runner import DemoRunner
+from gemini_live_demo.core.session import GeminiLiveAdapter
 
 console = Console()
 logger = logging.getLogger('gemini_live_demo')

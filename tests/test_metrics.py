@@ -14,7 +14,7 @@ import csv
 from pathlib import Path
 from types import SimpleNamespace
 
-from gemini_live_demo.metrics import (
+from gemini_live_demo.core.metrics import (
     METRICS_FIELDNAMES,
     MetricsCsv,
     build_metrics_row,

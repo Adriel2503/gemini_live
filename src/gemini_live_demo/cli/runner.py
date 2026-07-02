@@ -20,12 +20,12 @@ import sounddevice as sd
 from rich.console import Console
 from rich.panel import Panel
 
-from gemini_live_demo.audio import ensure_mono, float32_to_int16, normalize_language_code
-from gemini_live_demo.audio_io import StreamingAudioPlayer, capture_until_enter, play_pcm
-from gemini_live_demo.config import Settings
-from gemini_live_demo.events import EventSummary, summarize_event
-from gemini_live_demo.metrics import MetricsCsv, build_metrics_row
-from gemini_live_demo.session import GeminiLiveAdapter
+from gemini_live_demo.core.audio import ensure_mono, float32_to_int16, normalize_language_code
+from gemini_live_demo.cli.audio_io import StreamingAudioPlayer, capture_until_enter, play_pcm
+from gemini_live_demo.core.config import Settings
+from gemini_live_demo.core.events import EventSummary, summarize_event
+from gemini_live_demo.core.metrics import MetricsCsv, build_metrics_row
+from gemini_live_demo.core.session import GeminiLiveAdapter
 
 console = Console()
 logger = logging.getLogger('gemini_live_demo')

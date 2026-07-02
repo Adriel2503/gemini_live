@@ -21,13 +21,13 @@ import sounddevice as sd
 from rich.console import Console
 from rich.table import Table
 
-from gemini_live_demo.audio import (
+from gemini_live_demo.core.audio import (
     ensure_mono,
     float32_to_int16,
     int16_to_float32,
     resample_audio,
 )
-from gemini_live_demo.config import Settings
+from gemini_live_demo.core.config import Settings
 
 console = Console()
 logger = logging.getLogger('gemini_live_demo')

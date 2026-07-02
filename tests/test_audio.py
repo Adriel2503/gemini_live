@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from gemini_live_demo.audio import (
+from gemini_live_demo.core.audio import (
     chunk_pcm_bytes,
     ensure_mono,
     float32_to_int16,

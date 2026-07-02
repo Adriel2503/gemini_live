@@ -11,13 +11,13 @@ import asyncio
 import logging
 from typing import Any, AsyncIterator
 
-from gemini_live_demo.audio import (
+from gemini_live_demo.core.audio import (
     chunk_pcm_bytes,
     normalize_language_code,
     summarize_pcm,
 )
-from gemini_live_demo.config import Settings
-from gemini_live_demo.events import EventSummary
+from gemini_live_demo.core.config import Settings
+from gemini_live_demo.core.events import EventSummary
 
 logger = logging.getLogger('gemini_live_demo')
 
