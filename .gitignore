@@ -1,15 +1,35 @@
+# Secretos
 .env
-.venv
+
+# Entornos virtuales
+.venv/
+venv/
+
+# Python: bytecode y cachés
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Cachés de herramientas
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# Build artifacts
+# Artefactos de build
 *.egg-info/
+build/
+dist/
+
+# Herramientas de agentes/IDE
+.claude/
+.idea/
+.vscode/
 
 # Datos generados en runtime
 metrics/
 recordings/
 *.wav
+
+# Sistema operativo
+Thumbs.db
+.DS_Store
