@@ -133,6 +133,10 @@ def create_app() -> FastAPI:
     async def index() -> FileResponse:
         return FileResponse(FRONTEND_DIR / 'index.html')
 
+    @app.get('/favicon.ico')
+    async def favicon() -> FileResponse:
+        return FileResponse(FRONTEND_DIR / 'favicon.svg', media_type='image/svg+xml')
+
     @app.get('/health')
     async def health() -> dict:
         return {'status': 'ok'}
