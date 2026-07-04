@@ -13,6 +13,9 @@ const dot = document.getElementById('dot');
 const stateEl = document.getElementById('state');
 const logEl = document.getElementById('log');
 const modelSel = document.getElementById('model');
+const callSection = document.getElementById('call-section');
+const phoneInput = document.getElementById('phone');
+const callBtn = document.getElementById('callBtn');
 
 const MODEL_STORAGE_KEY = 'gemini_live_model';
 
@@ -98,6 +101,9 @@ async function loadModels() {
     // Preselecciona: última elección guardada (si sigue siendo válida) o el default.
     const valid = data.models.some((m) => m.id === saved);
     modelSel.value = valid ? saved : data.default;
+    // La sección de llamada telefónica solo aparece si el servidor tiene
+    // configurado el bridge de Asterisk (BRIDGE_URL).
+    if (data.call_enabled) callSection.classList.add('enabled');
   } catch (err) {
     modelSel.innerHTML = '<option>Error cargando modelos</option>';
     log('No se pudieron cargar los modelos: ' + err.message, 'log-err');
@@ -189,5 +195,39 @@ toggleBtn.addEventListener('click', () => {
   if (running) stop();
   else start();
 });
+
+// --- Llamada telefónica (via bridge de Asterisk) ---
+
+async function makeCall() {
+  const number = phoneInput.value.replace(/\D/g, '');
+  if (!/^9\d{8}$/.test(number)) {
+    log('Número inválido: 9 dígitos empezando en 9 (ej. 987654321).', 'log-err');
+    return;
+  }
+  callBtn.disabled = true;
+  phoneInput.disabled = true;
+  log(`Llamando al +51 ${number}…`, 'log-sys');
+  try {
+    const res = await fetch('/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      log('Llamada en curso. Contesta el celular y habla con Gemini.', 'log-sys');
+    } else {
+      log('No se pudo llamar: ' + (data.error || `HTTP ${res.status}`), 'log-err');
+    }
+  } catch (err) {
+    log('Error llamando: ' + err.message, 'log-err');
+  } finally {
+    callBtn.disabled = false;
+    phoneInput.disabled = false;
+  }
+}
+
+callBtn.addEventListener('click', makeCall);
+phoneInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') makeCall(); });
 
 loadModels();

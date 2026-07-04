@@ -17,15 +17,18 @@ Protocolo del WebSocket ``/ws``:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
+import urllib.error
+import urllib.request
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from gemini_live_demo.core.config import Settings
@@ -59,6 +62,30 @@ def _find_frontend_dir() -> Path:
 
 
 FRONTEND_DIR = _find_frontend_dir()
+
+
+def _post_to_bridge(bridge_url: str, token: str, number: str) -> tuple[int, dict]:
+    """POST sincrónico al bridge de Asterisk (se corre en un thread).
+
+    Función separada para poder falsearla en tests sin red.
+    """
+    req = urllib.request.Request(
+        bridge_url.rstrip('/') + '/call',
+        data=json.dumps({'number': number}).encode(),
+        headers={'Content-Type': 'application/json', 'X-Bridge-Token': token},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        try:
+            payload = json.loads(exc.read().decode())
+        except Exception:
+            payload = {'success': False, 'error': f'bridge respondio HTTP {exc.code}'}
+        return exc.code, payload
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return 502, {'success': False, 'error': f'no se pudo contactar al bridge: {exc}'}
 
 
 async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
@@ -174,7 +201,31 @@ def create_app() -> FastAPI:
         """Modelos elegibles + el default (del entorno, si es válido)."""
         env_model = Settings.from_env().model
         default = env_model if env_model in _ALLOWED_MODEL_IDS else ALLOWED_MODELS[0]['id']
-        return {'models': ALLOWED_MODELS, 'default': default}
+        # call_enabled: el frontend muestra la sección "Llamada telefónica"
+        # solo si el bridge de Asterisk está configurado en este despliegue.
+        return {'models': ALLOWED_MODELS, 'default': default, 'call_enabled': bool(os.getenv('BRIDGE_URL'))}
+
+    @app.post('/call')
+    async def call(request: Request) -> JSONResponse:
+        """Proxy hacia el bridge de Asterisk: dispara una llamada telefónica.
+
+        El token del bridge vive solo en el servidor (BRIDGE_TOKEN); el
+        navegador nunca lo ve. Sin BRIDGE_URL configurado responde 503.
+        """
+        bridge_url = os.getenv('BRIDGE_URL')
+        if not bridge_url:
+            return JSONResponse({'success': False, 'error': 'Bridge no configurado (BRIDGE_URL).'}, status_code=503)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({'success': False, 'error': 'JSON inválido.'}, status_code=400)
+        number = str(body.get('number', '')).strip()
+        if not number:
+            return JSONResponse({'success': False, 'error': 'Falta el número.'}, status_code=400)
+        token = os.getenv('BRIDGE_TOKEN', '')
+        status, payload = await asyncio.to_thread(_post_to_bridge, bridge_url, token, number)
+        logger.info('[web] call proxy number=%s -> bridge status=%d', number, status)
+        return JSONResponse(payload, status_code=status)
 
     @app.websocket('/ws')
     async def ws_endpoint(ws: WebSocket) -> None:

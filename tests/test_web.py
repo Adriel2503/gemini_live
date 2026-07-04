@@ -118,6 +118,63 @@ def test_models_endpoint_lists_allowlist_and_default():
     assert data['default'] in _ALLOWED_MODEL_IDS
 
 
+def test_call_sin_bridge_configurado_responde_503(monkeypatch):
+    """Sin BRIDGE_URL el proxy /call responde 503 y no intenta red."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import app
+
+    monkeypatch.delenv('BRIDGE_URL', raising=False)
+    res = TestClient(app).post('/call', json={'number': '987654321'})
+    assert res.status_code == 503
+    assert res.json()['success'] is False
+
+
+def test_call_proxyea_al_bridge(monkeypatch):
+    """Con BRIDGE_URL configurado, /call reenvía número y token al bridge."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web import server
+
+    seen = {}
+
+    def fake_post(bridge_url, token, number):
+        seen.update(url=bridge_url, token=token, number=number)
+        return 200, {'success': True, 'uuid': 'abc'}
+
+    monkeypatch.setenv('BRIDGE_URL', 'http://bridge:9094')
+    monkeypatch.setenv('BRIDGE_TOKEN', 'tok123')
+    monkeypatch.setattr(server, '_post_to_bridge', fake_post)
+
+    res = TestClient(server.app).post('/call', json={'number': '987654321'})
+    assert res.status_code == 200
+    assert res.json() == {'success': True, 'uuid': 'abc'}
+    assert seen == {'url': 'http://bridge:9094', 'token': 'tok123', 'number': '987654321'}
+
+
+def test_call_sin_numero_responde_400(monkeypatch):
+    """Numero vacío se rechaza en el proxy sin llegar al bridge."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import app
+
+    monkeypatch.setenv('BRIDGE_URL', 'http://bridge:9094')
+    res = TestClient(app).post('/call', json={})
+    assert res.status_code == 400
+
+
+def test_models_expone_call_enabled(monkeypatch):
+    """``call_enabled`` refleja si BRIDGE_URL está configurado."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import app
+
+    monkeypatch.delenv('BRIDGE_URL', raising=False)
+    assert TestClient(app).get('/models').json()['call_enabled'] is False
+    monkeypatch.setenv('BRIDGE_URL', 'http://bridge:9094')
+    assert TestClient(app).get('/models').json()['call_enabled'] is True
+
+
 def test_bridge_browser_to_gemini():
     """El audio del navegador se reenvia a Gemini y el disconnect cierra el puente."""
     adapter = _FakeAdapter(events=[], block_receive=True)  # Gemini calla

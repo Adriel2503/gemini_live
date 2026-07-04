@@ -34,6 +34,15 @@
       border-radius: 8px; padding: 9px 10px; font-size: 14px; cursor: pointer;
     }
     select:disabled { opacity: .5; cursor: not-allowed; }
+    #call-section { display: none; border-top: 1px solid #30363d; padding-top: 18px; margin-top: 4px; }
+    #call-section.enabled { display: block; }
+    .prefix { color: #8b949e; font-size: 14px; flex: 0 0 auto; }
+    input[type="tel"] {
+      flex: 1; background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+      border-radius: 8px; padding: 9px 10px; font-size: 14px;
+    }
+    input[type="tel"]:disabled { opacity: .5; }
+    #callBtn { background: #1f6feb; color: #fff; }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #6e7681; flex: 0 0 auto; }
     .dot.live { background: #3fb950; box-shadow: 0 0 10px #3fb950; }
     .dot.speaking { background: #58a6ff; box-shadow: 0 0 10px #58a6ff; }
@@ -61,6 +70,14 @@
       <button id="toggle">Iniciar conversación</button>
       <span class="dot" id="dot"></span>
       <span id="state">Desconectado</span>
+    </div>
+    <div id="call-section">
+      <div class="sub">O conversa por teléfono: Gemini llama a un celular peruano.</div>
+      <div class="row">
+        <span class="prefix">+51</span>
+        <input type="tel" id="phone" placeholder="987654321" maxlength="9" inputmode="numeric" />
+        <button id="callBtn">Llamar</button>
+      </div>
     </div>
     <div id="log"></div>
   </div>
