@@ -11,45 +11,56 @@
     body {
       margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: #0d1117; color: #e6edf3;
+      background: #0d1117; color: #e6edf3; padding: 20px;
     }
     .card {
-      width: min(560px, 92vw); background: #161b22; border: 1px solid #30363d;
+      width: min(560px, 100%); background: #161b22; border: 1px solid #30363d;
       border-radius: 14px; padding: 28px; box-shadow: 0 10px 40px rgba(0,0,0,.4);
     }
-    h1 { font-size: 20px; margin: 0 0 4px; }
-    .sub { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
-    .row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .card > h1 { font-size: 20px; margin: 0 0 4px; }
+    .card > .lead { color: #8b949e; font-size: 13px; margin: 0 0 24px; }
+
+    /* Cada modo de conversar es un panel con título propio. */
+    .panel { background: #0d1117; border: 1px solid #30363d; border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .panel-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .panel-title .ico { font-size: 16px; }
+    .panel-hint { color: #8b949e; font-size: 12px; margin-bottom: 16px; }
+
+    .row { display: flex; align-items: center; gap: 12px; }
+    .row + .row { margin-top: 14px; }
+    label { font-size: 13px; color: #8b949e; flex: 0 0 auto; }
     button {
-      appearance: none; border: 0; border-radius: 10px; padding: 12px 20px; font-size: 15px;
-      font-weight: 600; cursor: pointer; transition: background .15s, transform .05s;
+      appearance: none; border: 0; border-radius: 10px; padding: 11px 18px; font-size: 15px;
+      font-weight: 600; cursor: pointer; transition: background .15s, transform .05s; flex: 0 0 auto;
     }
     button:active { transform: translateY(1px); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
     #toggle { background: #238636; color: #fff; }
     #toggle.on { background: #da3633; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    label { font-size: 13px; color: #8b949e; flex: 0 0 auto; }
-    select {
-      flex: 1; background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
-      border-radius: 8px; padding: 9px 10px; font-size: 14px; cursor: pointer;
-    }
-    select:disabled { opacity: .5; cursor: not-allowed; }
-    #call-section { display: none; border-top: 1px solid #30363d; padding-top: 18px; margin-top: 4px; }
-    #call-section.enabled { display: block; }
-    .prefix { color: #8b949e; font-size: 14px; flex: 0 0 auto; }
-    input[type="tel"] {
-      flex: 1; background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+    #callBtn { background: #1f6feb; color: #fff; }
+
+    select, input[type="tel"] {
+      flex: 1; background: #161b22; color: #e6edf3; border: 1px solid #30363d;
       border-radius: 8px; padding: 9px 10px; font-size: 14px;
     }
-    input[type="tel"]:disabled { opacity: .5; }
-    #callBtn { background: #1f6feb; color: #fff; }
+    select { cursor: pointer; }
+    select:disabled, input[type="tel"]:disabled { opacity: .5; cursor: not-allowed; }
+    .prefix { color: #8b949e; font-size: 14px; flex: 0 0 auto; }
+
+    .status { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #6e7681; flex: 0 0 auto; }
     .dot.live { background: #3fb950; box-shadow: 0 0 10px #3fb950; }
     .dot.speaking { background: #58a6ff; box-shadow: 0 0 10px #58a6ff; }
     #state { font-size: 13px; color: #8b949e; }
+
+    /* La sección telefónica solo se muestra si el bridge está configurado. */
+    #call-section { display: none; }
+    #call-section.enabled { display: block; }
+
+    .log-label { font-size: 12px; color: #8b949e; margin-bottom: 6px; }
     #log {
       background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 12px;
-      height: 220px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      height: 180px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 12px; line-height: 1.5; white-space: pre-wrap;
     }
     .log-sys { color: #8b949e; }
@@ -61,24 +72,37 @@
 <body>
   <div class="card">
     <h1>Gemini Live — Demo de voz</h1>
-    <div class="sub">Aprieta el botón, permite el micrófono y habla. Gemini responde por voz.</div>
-    <div class="row">
-      <label for="model">Modelo</label>
-      <select id="model"><option>Cargando…</option></select>
-    </div>
-    <div class="row">
-      <button id="toggle">Iniciar conversación</button>
-      <span class="dot" id="dot"></span>
-      <span id="state">Desconectado</span>
-    </div>
-    <div id="call-section">
-      <div class="sub">O conversa por teléfono: Gemini llama a un celular peruano.</div>
+    <p class="lead">Conversa con Gemini por voz, desde el navegador o por una llamada telefónica.</p>
+
+    <!-- Modo 1: hablar desde el navegador -->
+    <section class="panel">
+      <div class="panel-title"><span class="ico">🎙️</span> Desde el navegador</div>
+      <div class="panel-hint">Permite el micrófono y habla; Gemini responde por voz.</div>
+      <div class="row">
+        <label for="model">Modelo</label>
+        <select id="model"><option>Cargando…</option></select>
+      </div>
+      <div class="row">
+        <button id="toggle">Iniciar conversación</button>
+      </div>
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="state">Desconectado</span>
+      </div>
+    </section>
+
+    <!-- Modo 2: llamada telefónica (solo si el bridge está configurado) -->
+    <section class="panel" id="call-section">
+      <div class="panel-title"><span class="ico">📞</span> Por teléfono</div>
+      <div class="panel-hint">Gemini llama a un celular peruano y conversa por la línea.</div>
       <div class="row">
         <span class="prefix">+51</span>
         <input type="tel" id="phone" placeholder="987654321" maxlength="9" inputmode="numeric" />
         <button id="callBtn">Llamar</button>
       </div>
-    </div>
+    </section>
+
+    <div class="log-label">Registro</div>
     <div id="log"></div>
   </div>
   <script src="/static/app.js"></script>
