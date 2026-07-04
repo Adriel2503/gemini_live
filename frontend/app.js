@@ -211,7 +211,7 @@ async function makeCall() {
     const res = await fetch('/call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ number }),
+      body: JSON.stringify({ number, model: modelSel.value || '' }),
     });
     const data = await res.json();
     if (res.ok && data.success) {

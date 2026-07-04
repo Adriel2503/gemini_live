@@ -138,8 +138,8 @@ def test_call_proxyea_al_bridge(monkeypatch):
 
     seen = {}
 
-    def fake_post(bridge_url, token, number):
-        seen.update(url=bridge_url, token=token, number=number)
+    def fake_post(bridge_url, token, number, model=''):
+        seen.update(url=bridge_url, token=token, number=number, model=model)
         return 200, {'success': True, 'uuid': 'abc'}
 
     monkeypatch.setenv('BRIDGE_URL', 'http://bridge:9094')
@@ -149,7 +149,7 @@ def test_call_proxyea_al_bridge(monkeypatch):
     res = TestClient(server.app).post('/call', json={'number': '987654321'})
     assert res.status_code == 200
     assert res.json() == {'success': True, 'uuid': 'abc'}
-    assert seen == {'url': 'http://bridge:9094', 'token': 'tok123', 'number': '987654321'}
+    assert seen == {'url': 'http://bridge:9094', 'token': 'tok123', 'number': '987654321', 'model': ''}
 
 
 def test_call_sin_numero_responde_400(monkeypatch):

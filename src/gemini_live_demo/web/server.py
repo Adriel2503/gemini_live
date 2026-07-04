@@ -64,14 +64,17 @@ def _find_frontend_dir() -> Path:
 FRONTEND_DIR = _find_frontend_dir()
 
 
-def _post_to_bridge(bridge_url: str, token: str, number: str) -> tuple[int, dict]:
+def _post_to_bridge(bridge_url: str, token: str, number: str, model: str = '') -> tuple[int, dict]:
     """POST sincrónico al bridge de Asterisk (se corre en un thread).
 
     Función separada para poder falsearla en tests sin red.
     """
+    payload = {'number': number}
+    if model:
+        payload['model'] = model
     req = urllib.request.Request(
         bridge_url.rstrip('/') + '/call',
-        data=json.dumps({'number': number}).encode(),
+        data=json.dumps(payload).encode(),
         headers={'Content-Type': 'application/json', 'X-Bridge-Token': token},
         method='POST',
     )
@@ -222,8 +225,12 @@ def create_app() -> FastAPI:
         number = str(body.get('number', '')).strip()
         if not number:
             return JSONResponse({'success': False, 'error': 'Falta el número.'}, status_code=400)
+        # Modelo elegido en la web; solo se acepta si está en la allowlist.
+        model = str(body.get('model', '')).strip()
+        if model and model not in _ALLOWED_MODEL_IDS:
+            model = ''
         token = os.getenv('BRIDGE_TOKEN', '')
-        status, payload = await asyncio.to_thread(_post_to_bridge, bridge_url, token, number)
+        status, payload = await asyncio.to_thread(_post_to_bridge, bridge_url, token, number, model)
         logger.info('[web] call proxy number=%s -> bridge status=%d', number, status)
         return JSONResponse(payload, status_code=status)
 
