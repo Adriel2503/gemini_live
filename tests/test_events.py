@@ -27,6 +27,31 @@ def test_dict_extracts_text_and_generation_complete():
     assert s.done is True  # done = turn_complete or generation_complete
 
 
+def test_dict_extracts_input_transcription_as_user_text():
+    event = {
+        'server_content': {
+            'input_transcription': {'text': 'hola quiero información'},
+            'output_transcription': {'text': 'claro, dime'},
+        }
+    }
+    s = summarize_event(event)
+    assert s.user_text == 'hola quiero información'
+    assert s.text == 'claro, dime'
+
+
+def test_object_extracts_input_transcription_as_user_text():
+    sc = SimpleNamespace(
+        model_turn=None,
+        output_transcription=None,
+        input_transcription=SimpleNamespace(text='mi nombre es Dante'),
+        turn_complete=False,
+        generation_complete=False,
+        interrupted=False,
+    )
+    s = summarize_event(SimpleNamespace(server_content=sc))
+    assert s.user_text == 'mi nombre es Dante'
+
+
 def test_dict_turn_complete_marks_done():
     s = summarize_event({'server_content': {'turn_complete': True}})
     assert s.turn_complete is True

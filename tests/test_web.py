@@ -36,6 +36,9 @@ class _FakeAdapter:
     def clear_refresh_request(self):
         pass
 
+    async def greet(self, session):
+        pass
+
     def note_event(self, summary):
         pass
 

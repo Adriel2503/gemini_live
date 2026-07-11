@@ -111,6 +111,16 @@ class GeminiLiveAdapter:
         session_resumption = types.SessionResumptionConfig(
             handle=self._session_handle,
         )
+        # Transcripcion: un objeto (vacio) activa cada direccion. El texto del
+        # usuario llega en server_content.input_transcription; el de la IA en
+        # output_transcription. getattr por robustez ante SDKs viejos.
+        transcription_kwargs = {}
+        audio_transcription = getattr(types, 'AudioTranscriptionConfig', None)
+        if self.settings.transcribe and audio_transcription is not None:
+            transcription_kwargs = dict(
+                inputAudioTranscription=audio_transcription(),
+                outputAudioTranscription=audio_transcription(),
+            )
         return types.LiveConnectConfig(
             systemInstruction=self.prompt,
             responseModalities=[modality_audio],
@@ -118,6 +128,7 @@ class GeminiLiveAdapter:
             contextWindowCompression=compression,
             realtimeInputConfig=realtime_input_config,
             sessionResumption=session_resumption,
+            **transcription_kwargs,
         )
 
     async def connect(self):

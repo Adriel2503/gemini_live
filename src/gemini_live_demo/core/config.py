@@ -52,6 +52,10 @@ class Settings:
     )
     greet_first: bool = False
     greeting_trigger: str = '[Inicio de sesion: saluda brevemente y pregunta en que puedes ayudar]'
+    # Transcripcion de audio (Live API): texto de lo que dice el usuario
+    # (input) y de lo que responde la IA (output). El input no cuesta tokens
+    # extra. Se envia a los consumidores (web/bridge) para registro/monitoreo.
+    transcribe: bool = True
 
     @property
     def frames_per_chunk(self) -> int:
@@ -92,4 +96,5 @@ class Settings:
             prompt=os.getenv('GEMINI_SYSTEM_PROMPT', d.prompt),
             greet_first=_as_bool(os.getenv('GEMINI_GREET_FIRST'), d.greet_first),
             greeting_trigger=os.getenv('GEMINI_GREETING_TRIGGER', d.greeting_trigger),
+            transcribe=_as_bool(os.getenv('GEMINI_TRANSCRIBE'), d.transcribe),
         )

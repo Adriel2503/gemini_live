@@ -11,7 +11,8 @@ Protocolo del WebSocket ``/ws``:
     - binario: PCM16 mono @ input_sample_rate (16 kHz) del microfono.
   Servidor -> Navegador:
     - binario: PCM16 mono @ output_sample_rate (24 kHz) para reproducir.
-    - texto JSON: {"type": "status"|"text"|"interrupted"|"turn_complete"|"error", ...}
+    - texto JSON: {"type": "status"|"text"|"user_text"|"interrupted"|"turn_complete"|"error", ...}
+      ("text" = transcripcion de la IA; "user_text" = transcripcion del usuario)
 """
 
 from __future__ import annotations
@@ -143,6 +144,8 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
                     if summary.interrupted:
                         logger.info('[web] interrupted -> flush client playback')
                         await ws.send_json({'type': 'interrupted'})
+                    if summary.user_text:
+                        await ws.send_json({'type': 'user_text', 'text': summary.user_text})
                     if summary.text:
                         await ws.send_json({'type': 'text', 'text': summary.text})
                     if summary.audio_chunks and not turn_audio_started:

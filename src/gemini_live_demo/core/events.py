@@ -20,7 +20,7 @@ def _get_attr(obj: Any, *names: str) -> Any:
 
 @dataclass
 class EventSummary:
-    text: str | None
+    text: str | None  # transcripcion de la IA (output)
     audio_chunks: list[bytes]
     done: bool
     turn_complete: bool
@@ -33,10 +33,12 @@ class EventSummary:
     voice_activity_type: str | None = None
     voice_activity_offset: str | None = None
     vad_signal_type: str | None = None
+    user_text: str | None = None  # transcripcion del usuario (input)
 
 
 def summarize_event(event: Any) -> EventSummary:
     text: str | None = None
+    user_text: str | None = None
     audio_chunks: list[bytes] = []
     turn_complete = False
     generation_complete = False
@@ -53,6 +55,8 @@ def summarize_event(event: Any) -> EventSummary:
         sc = event.get('server_content') or {}
         out = sc.get('output_transcription') or {}
         text = out.get('text') or None
+        inp = sc.get('input_transcription') or {}
+        user_text = inp.get('text') or None
         turn_complete = bool(sc.get('turn_complete'))
         generation_complete = bool(sc.get('generation_complete'))
         interrupted = bool(sc.get('interrupted'))
@@ -81,6 +85,7 @@ def summarize_event(event: Any) -> EventSummary:
             voice_activity_type=str(voice_activity_type) if voice_activity_type else None,
             voice_activity_offset=str(voice_activity_offset) if voice_activity_offset else None,
             vad_signal_type=str(vad_signal_type) if vad_signal_type else None,
+            user_text=user_text,
         )
 
     sc = getattr(event, 'server_content', None)
@@ -88,6 +93,9 @@ def summarize_event(event: Any) -> EventSummary:
         out = _get_attr(sc, 'output_transcription', 'outputTranscription')
         if out is not None:
             text = _get_attr(out, 'text') or text
+        inp = _get_attr(sc, 'input_transcription', 'inputTranscription')
+        if inp is not None:
+            user_text = _get_attr(inp, 'text') or user_text
         mt = _get_attr(sc, 'model_turn', 'modelTurn')
         if mt is not None:
             model_turn_present = True
@@ -126,4 +134,5 @@ def summarize_event(event: Any) -> EventSummary:
         model_turn_present=model_turn_present,
         new_handle=new_handle,
         resumable=resumable,
+        user_text=user_text,
     )

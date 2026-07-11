@@ -153,6 +153,7 @@ async function start() {
     if (typeof event.data === 'string') {
       const msg = JSON.parse(event.data);
       if (msg.type === 'text') log('Gemini: ' + msg.text, 'log-ai');
+      else if (msg.type === 'user_text') log('Tú: ' + msg.text, 'log-sys');
       else if (msg.type === 'interrupted') { stopPlayback(); log('(interrumpido)', 'log-sys'); }
       else if (msg.type === 'turn_complete') { /* fin de turno */ }
       else if (msg.type === 'status' && msg.state === 'ready') log('Sesión de Gemini lista. Ya puedes hablar.', 'log-sys');
