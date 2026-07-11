@@ -151,6 +151,18 @@ class GeminiLiveAdapter:
             return
         await session.send(input=text, end_of_turn=True)
 
+    async def greet(self, session: Any) -> None:
+        """Dispara un turno inicial para que Gemini hable primero.
+
+        No es un mensaje de audio: usa send_text para esquivar el VAD, que
+        solo reacciona a actividad de voz. Se salta si esta sesion viene de
+        un resumption handle (ya hubo saludo en la sesion original).
+        """
+        if not self.settings.greet_first or self._session_handle:
+            return
+        logger.info('[session] greeting trigger sent')
+        await self.send_text(session, self.settings.greeting_trigger)
+
     async def send_audio(self, session: Any, pcm_bytes: bytes) -> None:
         duration_seconds, rms, byte_count = summarize_pcm(pcm_bytes, self.settings.input_sample_rate)
         logger.info(

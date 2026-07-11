@@ -101,6 +101,7 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
     session_cm = await adapter.connect()
     session = await session_cm.__aenter__()
     adapter.clear_refresh_request()
+    await adapter.greet(session)
     logger.info('[web] gemini session ready model=%s', adapter.model)
     await ws.send_json({'type': 'status', 'state': 'ready'})
 

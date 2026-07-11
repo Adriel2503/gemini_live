@@ -50,6 +50,8 @@ class Settings:
         'No inventes informacion. Si algo no esta claro, haz una sola pregunta. '
         'Prioriza rapidez y coherencia.'
     )
+    greet_first: bool = False
+    greeting_trigger: str = '[Inicio de sesion: saluda brevemente y pregunta en que puedes ayudar]'
 
     @property
     def frames_per_chunk(self) -> int:
@@ -88,4 +90,6 @@ class Settings:
             context_compression_trigger_tokens=int(os.getenv('GEMINI_CONTEXT_TRIGGER_TOKENS', str(d.context_compression_trigger_tokens))),
             context_compression_target_tokens=int(os.getenv('GEMINI_CONTEXT_TARGET_TOKENS', str(d.context_compression_target_tokens))),
             prompt=os.getenv('GEMINI_SYSTEM_PROMPT', d.prompt),
+            greet_first=_as_bool(os.getenv('GEMINI_GREET_FIRST'), d.greet_first),
+            greeting_trigger=os.getenv('GEMINI_GREETING_TRIGGER', d.greeting_trigger),
         )

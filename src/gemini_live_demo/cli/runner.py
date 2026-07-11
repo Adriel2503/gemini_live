@@ -42,6 +42,7 @@ class DemoRunner:
         self._session_cm = await self.adapter.connect()
         self._session = await self._session_cm.__aenter__()
         self.adapter.clear_refresh_request()
+        await self.adapter.greet(self._session)
         logger.info('[session] ready')
 
     async def _close_session(self) -> None:
