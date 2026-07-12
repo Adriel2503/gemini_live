@@ -16,8 +16,77 @@ const modelSel = document.getElementById('model');
 const callSection = document.getElementById('call-section');
 const phoneInput = document.getElementById('phone');
 const callBtn = document.getElementById('callBtn');
+const tabBrowser = document.getElementById('tabBrowser');
+const tabCall = document.getElementById('tabCall');
+const panelBrowser = document.getElementById('panel-browser');
+
+// --- Métricas de tokens (panel lateral): historial turno a turno ---
+// Gemini manda usage_metadata por turno (no acumulado). Guardamos cada turno
+// tal cual llega y además sumamos, para ver tanto el detalle como el total.
+const mSumPrompt = document.getElementById('mSumPrompt');
+const mSumResponse = document.getElementById('mSumResponse');
+const mSumTotal = document.getElementById('mSumTotal');
+const turnsEl = document.getElementById('turns');
+const turnCountEl = document.getElementById('turnCount');
+
+const sessionTokens = { prompt: 0, response: 0, total: 0 };
+let turnCount = 0;
+
+function resetMetrics() {
+  sessionTokens.prompt = 0;
+  sessionTokens.response = 0;
+  sessionTokens.total = 0;
+  turnCount = 0;
+  mSumPrompt.textContent = mSumResponse.textContent = mSumTotal.textContent = '0';
+  turnCountEl.textContent = '0';
+  turnsEl.innerHTML = '';
+}
+
+function handleUsage(msg) {
+  const promptTokens = msg.prompt_tokens ?? 0;
+  const responseTokens = msg.response_tokens ?? 0;
+  const cachedTokens = msg.cached_tokens ?? 0;
+  const totalTokens = msg.total_tokens ?? (promptTokens + responseTokens);
+
+  sessionTokens.prompt += promptTokens;
+  sessionTokens.response += responseTokens;
+  sessionTokens.total += totalTokens;
+  mSumPrompt.textContent = sessionTokens.prompt;
+  mSumResponse.textContent = sessionTokens.response;
+  mSumTotal.textContent = sessionTokens.total;
+
+  turnCount += 1;
+  turnCountEl.textContent = turnCount;
+  const row = document.createElement('div');
+  row.className = 'turn-row';
+  row.innerHTML = `
+    <div class="turn-num">Turno ${turnCount}</div>
+    <div class="turn-stats">
+      <span>entrada <b>${promptTokens}</b></span>
+      <span>salida <b>${responseTokens}</b></span>
+      ${cachedTokens ? `<span>caché <b>${cachedTokens}</b></span>` : ''}
+      <span class="t-total">total <b>${totalTokens}</b></span>
+    </div>`;
+  turnsEl.appendChild(row);
+  turnsEl.scrollTop = turnsEl.scrollHeight;
+}
 
 const MODEL_STORAGE_KEY = 'gemini_live_model';
+
+// --- Pestañas: "Desde el navegador" vs "Por teléfono" son formas distintas
+// de probar, no pasos secuenciales, así que solo una está visible a la vez. ---
+function selectTab(tab) {
+  const showCall = tab === 'call';
+  tabBrowser.classList.toggle('active', !showCall);
+  tabBrowser.setAttribute('aria-selected', String(!showCall));
+  tabCall.classList.toggle('active', showCall);
+  tabCall.setAttribute('aria-selected', String(showCall));
+  panelBrowser.hidden = showCall;
+  callSection.hidden = !showCall;
+}
+
+tabBrowser.addEventListener('click', () => selectTab('browser'));
+tabCall.addEventListener('click', () => selectTab('call'));
 
 let running = false;
 let ws = null;
@@ -101,9 +170,9 @@ async function loadModels() {
     // Preselecciona: última elección guardada (si sigue siendo válida) o el default.
     const valid = data.models.some((m) => m.id === saved);
     modelSel.value = valid ? saved : data.default;
-    // La sección de llamada telefónica solo aparece si el servidor tiene
+    // La pestaña de llamada telefónica solo aparece si el servidor tiene
     // configurado el bridge de Asterisk (BRIDGE_URL).
-    if (data.call_enabled) callSection.classList.add('enabled');
+    if (data.call_enabled) tabCall.hidden = false;
   } catch (err) {
     modelSel.innerHTML = '<option>Error cargando modelos</option>';
     log('No se pudieron cargar los modelos: ' + err.message, 'log-err');
@@ -115,6 +184,7 @@ modelSel.addEventListener('change', () => {
 });
 
 async function start() {
+  resetMetrics();
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
@@ -158,6 +228,7 @@ async function start() {
       else if (msg.type === 'turn_complete') { /* fin de turno */ }
       else if (msg.type === 'status' && msg.state === 'ready') log('Sesión de Gemini lista. Ya puedes hablar.', 'log-sys');
       else if (msg.type === 'status' && msg.state === 'go_away') log('El servidor cerró la sesión (límite alcanzado).', 'log-sys');
+      else if (msg.type === 'usage') handleUsage(msg);
       else if (msg.type === 'error') log('Error del servidor: ' + msg.message, 'log-err');
       return;
     }

@@ -3,81 +3,172 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gemini Live — Demo de voz</title>
+  <title>Vox — Gemini Live Demo</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      color-scheme: dark;
+      /* Paleta azul profundo */
+      --bg: #050b18;
+      --card-bg: #0b1730;
+      --panel-bg: #081124;
+      --border: #1c3050;
+      --border-soft: #142443;
+      --text: #e8eefb;
+      --text-muted: #7f93b8;
+      --accent: #3b82f6;
+      --accent-strong: #2563eb;
+      --accent-soft: rgba(59, 130, 246, .16);
+      --cyan: #22d3ee;
+      --danger: #ef4444;
+      --call: #6366f1;
+    }
     * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
-      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      margin: 0; min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: #0d1117; color: #e6edf3; padding: 20px;
+      background: radial-gradient(circle at 20% -10%, #0e1f42 0%, var(--bg) 55%);
+      color: var(--text); padding: 20px;
+    }
+    .layout {
+      width: min(860px, 100%); display: flex; align-items: flex-start; gap: 16px;
     }
     .card {
-      width: min(560px, 100%); background: #161b22; border: 1px solid #30363d;
-      border-radius: 14px; padding: 28px; box-shadow: 0 10px 40px rgba(0,0,0,.4);
+      flex: 1 1 480px; min-width: 0; background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 14px; padding: 28px; box-shadow: 0 10px 40px rgba(0,0,0,.45);
     }
-    .card > h1 { font-size: 20px; margin: 0 0 4px; }
-    .card > .lead { color: #8b949e; font-size: 13px; margin: 0 0 24px; }
+    .footer-credit { margin: 18px 0 0; text-align: center; color: var(--text-muted); font-size: 11px; }
+    .brand { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; font-size: clamp(18px, 5vw, 20px); }
+    .brand .mark { color: var(--accent); font-weight: 800; }
+    .brand .sub { color: var(--text-muted); font-size: 13px; font-weight: 500; }
+    .card > .lead { color: var(--text-muted); font-size: 13px; margin: 0 0 20px; }
+
+    /* Selector de modo: son dos formas distintas de probar, no pasos a seguir. */
+    .tabs { display: flex; gap: 6px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
+    .tab-btn {
+      flex: 1; appearance: none; border: 0; background: transparent; color: var(--text-muted);
+      border-radius: 8px; padding: 10px 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px;
+    }
+    .tab-btn.active { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px rgba(59,130,246,.35); }
+    .tab-btn[hidden] { display: none; }
 
     /* Cada modo de conversar es un panel con título propio. */
-    .panel { background: #0d1117; border: 1px solid #30363d; border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .panel { background: var(--panel-bg); border: 1px solid var(--border-soft); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .panel[hidden] { display: none; }
     .panel-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
     .panel-title .ico { font-size: 16px; }
-    .panel-hint { color: #8b949e; font-size: 12px; margin-bottom: 16px; }
+    .panel-hint { color: var(--text-muted); font-size: 12px; margin-bottom: 16px; }
 
-    .row { display: flex; align-items: center; gap: 12px; }
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .row + .row { margin-top: 14px; }
-    label { font-size: 13px; color: #8b949e; flex: 0 0 auto; }
+    label { font-size: 13px; color: var(--text-muted); flex: 0 0 auto; }
     button {
-      appearance: none; border: 0; border-radius: 10px; padding: 11px 18px; font-size: 15px;
+      appearance: none; border: 0; border-radius: 10px; padding: 12px 18px; font-size: 15px;
       font-weight: 600; cursor: pointer; transition: background .15s, transform .05s; flex: 0 0 auto;
+      min-height: 44px; /* objetivo táctil cómodo en celular */
+      color: #fff;
     }
     button:active { transform: translateY(1px); }
     button:disabled { opacity: .5; cursor: not-allowed; }
-    #toggle { background: #238636; color: #fff; }
-    #toggle.on { background: #da3633; }
-    #callBtn { background: #1f6feb; color: #fff; }
+    #toggle { background: var(--accent-strong); width: 100%; }
+    #toggle.on { background: var(--danger); }
+    #callBtn { background: var(--call); }
 
     select, input[type="tel"] {
-      flex: 1; background: #161b22; color: #e6edf3; border: 1px solid #30363d;
-      border-radius: 8px; padding: 9px 10px; font-size: 14px;
+      flex: 1; min-width: 140px; background: var(--card-bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 11px 10px; font-size: 16px; /* 16px evita el zoom automático de iOS */
+      min-height: 44px;
     }
     select { cursor: pointer; }
     select:disabled, input[type="tel"]:disabled { opacity: .5; cursor: not-allowed; }
-    .prefix { color: #8b949e; font-size: 14px; flex: 0 0 auto; }
+    .prefix { color: var(--text-muted); font-size: 14px; flex: 0 0 auto; }
 
     .status { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #6e7681; flex: 0 0 auto; }
-    .dot.live { background: #3fb950; box-shadow: 0 0 10px #3fb950; }
-    .dot.speaking { background: #58a6ff; box-shadow: 0 0 10px #58a6ff; }
-    #state { font-size: 13px; color: #8b949e; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #38507a; flex: 0 0 auto; }
+    .dot.live { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+    .dot.speaking { background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+    #state { font-size: 13px; color: var(--text-muted); }
 
-    /* La sección telefónica solo se muestra si el bridge está configurado. */
-    #call-section { display: none; }
-    #call-section.enabled { display: block; }
-
-    .log-label { font-size: 12px; color: #8b949e; margin-bottom: 6px; }
+    .log-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
     #log {
-      background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 12px;
+      background: var(--panel-bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px;
       height: 180px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 12px; line-height: 1.5; white-space: pre-wrap;
     }
-    .log-sys { color: #8b949e; }
-    .log-you { color: #d29922; }
-    .log-ai { color: #58a6ff; }
-    .log-err { color: #f85149; }
+    .log-sys { color: var(--text-muted); }
+    .log-you { color: #f2a94f; }
+    .log-ai { color: var(--cyan); }
+    .log-err { color: var(--danger); }
+
+    /* Panel lateral: metricas de tokens de la sesion en curso (navegador). */
+    .metrics {
+      flex: 0 0 280px; background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,.45);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .metrics-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+    .metrics-hint { color: var(--text-muted); font-size: 11px; margin-bottom: 16px; line-height: 1.4; }
+    .metrics-block + .metrics-block { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+    .metrics-block-label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin-bottom: 8px; }
+    .m-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+    .m-row .m-label { color: var(--text-muted); }
+    .m-row .m-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .m-row.total .m-value { color: var(--accent); }
+
+    /* Historial por turno: cada turno reporta SU consumo, no un acumulado. */
+    #turns {
+      display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto;
+      padding-right: 2px;
+    }
+    #turns:empty::after {
+      content: 'Todavía no hay turnos con métricas.'; color: var(--text-muted); font-size: 12px;
+    }
+    .turn-row {
+      background: var(--panel-bg); border: 1px solid var(--border-soft); border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .turn-row .turn-num { font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+    .turn-row .turn-stats {
+      display: flex; gap: 10px; font-size: 11px; color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .turn-row .turn-stats b { color: var(--text); font-weight: 600; }
+    .turn-row .turn-stats .t-total b { color: var(--accent); }
+
+    /* Celular: la tarjeta ocupa el ancho, la llamada apila input y botón. */
+    @media (max-width: 760px) {
+      .layout { flex-direction: column; }
+      .metrics { flex-basis: auto; width: 100%; }
+    }
+    @media (max-width: 480px) {
+      body { padding: 12px; align-items: stretch; }
+      .card, .metrics { padding: 18px 16px; border-radius: 12px; }
+      .row { gap: 10px; }
+      .row:has(#phone) { flex-direction: column; align-items: stretch; }
+      .row:has(#phone) .prefix { align-self: flex-start; }
+      #callBtn { width: 100%; }
+      #log { height: 220px; }
+    }
   </style>
 </head>
 <body>
+  <div class="layout">
   <div class="card">
-    <h1>Gemini Live — Demo de voz</h1>
-    <p class="lead">Conversa con Gemini por voz, desde el navegador o por una llamada telefónica.</p>
+    <h1 class="brand"><span class="mark">Vox</span> <span class="sub">— Gemini Live Demo</span></h1>
+    <p class="lead">Elige cómo quieres probar a Gemini por voz.</p>
+
+    <!-- Selector de modo de prueba: navegador vs. llamada telefónica -->
+    <div class="tabs" id="tabs" role="tablist">
+      <button class="tab-btn active" id="tabBrowser" data-tab="browser" role="tab" aria-selected="true">🎙️ Desde el navegador</button>
+      <button class="tab-btn" id="tabCall" data-tab="call" role="tab" aria-selected="false" hidden>📞 Por teléfono</button>
+    </div>
 
     <!-- Modo 1: hablar desde el navegador -->
-    <section class="panel">
+    <section class="panel" id="panel-browser" data-panel="browser" role="tabpanel">
       <div class="panel-title"><span class="ico">🎙️</span> Desde el navegador</div>
-      <div class="panel-hint">Permite el micrófono y habla; Gemini responde por voz.</div>
+      <div class="panel-hint">Permite el micrófono y habla; Gemini responde por voz en esta misma pestaña.</div>
       <div class="row">
         <label for="model">Modelo</label>
         <select id="model"><option>Cargando…</option></select>
@@ -92,9 +183,9 @@
     </section>
 
     <!-- Modo 2: llamada telefónica (solo si el bridge está configurado) -->
-    <section class="panel" id="call-section">
+    <section class="panel" id="call-section" data-panel="call" role="tabpanel" hidden>
       <div class="panel-title"><span class="ico">📞</span> Por teléfono</div>
-      <div class="panel-hint">Gemini llama a un celular peruano y conversa por la línea.</div>
+      <div class="panel-hint">Gemini llama a un celular peruano y conversa por la línea, sin usar el micrófono del navegador.</div>
       <div class="row">
         <span class="prefix">+51</span>
         <input type="tel" id="phone" placeholder="987654321" maxlength="9" inputmode="numeric" />
@@ -104,6 +195,27 @@
 
     <div class="log-label">Registro</div>
     <div id="log"></div>
+
+    <p class="footer-credit">Creado por Ariel Amado Frias Rojas</p>
+  </div>
+
+  <!-- Métricas de tokens (solo modo navegador; el bridge telefónico no las reporta aquí) -->
+  <aside class="metrics">
+    <div class="metrics-title">Métricas de tokens</div>
+    <div class="metrics-hint">Gemini reporta el consumo de CADA turno por separado (no acumulado); nosotros sumamos abajo para que veas el total.</div>
+
+    <div class="metrics-block">
+      <div class="metrics-block-label">Acumulado de la sesión</div>
+      <div class="m-row"><span class="m-label">Prompt (entrada)</span><span class="m-value" id="mSumPrompt">0</span></div>
+      <div class="m-row"><span class="m-label">Salida</span><span class="m-value" id="mSumResponse">0</span></div>
+      <div class="m-row total"><span class="m-label">Total</span><span class="m-value" id="mSumTotal">0</span></div>
+    </div>
+
+    <div class="metrics-block">
+      <div class="metrics-block-label">Historial por turno (<span id="turnCount">0</span>)</div>
+      <div id="turns"></div>
+    </div>
+  </aside>
   </div>
   <script src="/static/app.js"></script>
 </body>
