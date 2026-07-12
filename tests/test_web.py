@@ -107,6 +107,23 @@ def test_bridge_gemini_to_browser():
     assert ws.sent_bytes == [b'PCMDATA']
 
 
+def test_bridge_forwards_usage_metadata():
+    """Los tokens del turno (usage_metadata) llegan al navegador como 'usage'."""
+    events = [
+        {'usage_metadata': {'prompt_token_count': 50, 'response_token_count': 20, 'total_token_count': 70}},
+        {'go_away': True},
+    ]
+    adapter = _FakeAdapter(events)
+    ws = _FakeWS(block_receive=True)
+
+    asyncio.run(_bridge(ws, adapter))
+
+    usage_msgs = [m for m in ws.sent_json if m.get('type') == 'usage']
+    assert usage_msgs == [{
+        'type': 'usage', 'prompt_tokens': 50, 'response_tokens': 20, 'cached_tokens': None, 'total_tokens': 70,
+    }]
+
+
 def test_models_endpoint_lists_allowlist_and_default():
     """``/models`` expone la allowlist y un default válido."""
     from fastapi.testclient import TestClient

@@ -11,8 +11,9 @@ Protocolo del WebSocket ``/ws``:
     - binario: PCM16 mono @ input_sample_rate (16 kHz) del microfono.
   Servidor -> Navegador:
     - binario: PCM16 mono @ output_sample_rate (24 kHz) para reproducir.
-    - texto JSON: {"type": "status"|"text"|"user_text"|"interrupted"|"turn_complete"|"error", ...}
-      ("text" = transcripcion de la IA; "user_text" = transcripcion del usuario)
+    - texto JSON: {"type": "status"|"text"|"user_text"|"interrupted"|"turn_complete"|"usage"|"error", ...}
+      ("text" = transcripcion de la IA; "user_text" = transcripcion del usuario;
+       "usage" = tokens del turno: prompt_tokens/response_tokens/cached_tokens/total_tokens)
 """
 
 from __future__ import annotations
@@ -41,8 +42,8 @@ logger = logging.getLogger('gemini_live_demo')
 # Modelos que el cliente puede elegir desde la UI. Allowlist server-side: el
 # navegador no puede pedir un modelo arbitrario (evita typos/abuso).
 ALLOWED_MODELS = [
-    {'id': 'gemini-2.5-flash-native-audio-latest', 'label': 'Gemini 2.5 Flash · native audio (recomendado)'},
-    {'id': 'gemini-3.1-flash-live-preview', 'label': 'Gemini 3.1 Flash Live · preview (sin validar)'},
+    {'id': 'gemini-2.5-flash-native-audio-latest', 'label': 'Gemini 2.5 Flash · native audio'},
+    {'id': 'gemini-3.1-flash-live-preview', 'label': 'Gemini 3.1 Flash Live · preview'},
 ]
 _ALLOWED_MODEL_IDS = {m['id'] for m in ALLOWED_MODELS}
 
@@ -148,6 +149,14 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
                         await ws.send_json({'type': 'user_text', 'text': summary.user_text})
                     if summary.text:
                         await ws.send_json({'type': 'text', 'text': summary.text})
+                    if summary.total_tokens is not None:
+                        await ws.send_json({
+                            'type': 'usage',
+                            'prompt_tokens': summary.prompt_tokens,
+                            'response_tokens': summary.response_tokens,
+                            'cached_tokens': summary.cached_tokens,
+                            'total_tokens': summary.total_tokens,
+                        })
                     if summary.audio_chunks and not turn_audio_started:
                         # Primer chunk de respuesta del turno: latencia desde el
                         # último audio del usuario (proxy de "tiempo de reacción").

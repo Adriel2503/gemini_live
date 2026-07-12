@@ -34,6 +34,12 @@ class EventSummary:
     voice_activity_offset: str | None = None
     vad_signal_type: str | None = None
     user_text: str | None = None  # transcripcion del usuario (input)
+    # Consumo de tokens del turno (UsageMetadata del SDK). None si el evento
+    # no trae metricas (la mayoria no las trae; suele venir con turn_complete).
+    prompt_tokens: int | None = None
+    response_tokens: int | None = None
+    cached_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 def summarize_event(event: Any) -> EventSummary:
@@ -50,6 +56,10 @@ def summarize_event(event: Any) -> EventSummary:
     voice_activity_type: str | None = None
     voice_activity_offset: str | None = None
     vad_signal_type: str | None = None
+    prompt_tokens: int | None = None
+    response_tokens: int | None = None
+    cached_tokens: int | None = None
+    total_tokens: int | None = None
 
     if isinstance(event, dict):
         sc = event.get('server_content') or {}
@@ -69,6 +79,11 @@ def summarize_event(event: Any) -> EventSummary:
         voice_activity_offset = voice_activity.get('audio_offset') or voice_activity.get('audioOffset')
         vad_signal = event.get('voice_activity_detection_signal') or event.get('voiceActivityDetectionSignal') or {}
         vad_signal_type = vad_signal.get('vad_signal_type') or vad_signal.get('vadSignalType')
+        usage = event.get('usage_metadata') or event.get('usageMetadata') or {}
+        prompt_tokens = usage.get('prompt_token_count') or usage.get('promptTokenCount')
+        response_tokens = usage.get('response_token_count') or usage.get('responseTokenCount')
+        cached_tokens = usage.get('cached_content_token_count') or usage.get('cachedContentTokenCount')
+        total_tokens = usage.get('total_token_count') or usage.get('totalTokenCount')
         model_turn = sc.get('model_turn')
         model_turn_present = bool(model_turn)
         return EventSummary(
@@ -86,6 +101,10 @@ def summarize_event(event: Any) -> EventSummary:
             voice_activity_offset=str(voice_activity_offset) if voice_activity_offset else None,
             vad_signal_type=str(vad_signal_type) if vad_signal_type else None,
             user_text=user_text,
+            prompt_tokens=prompt_tokens,
+            response_tokens=response_tokens,
+            cached_tokens=cached_tokens,
+            total_tokens=total_tokens,
         )
 
     sc = getattr(event, 'server_content', None)
@@ -123,6 +142,14 @@ def summarize_event(event: Any) -> EventSummary:
         new_handle = _get_attr(session_update, 'new_handle', 'newHandle')
         resumable = _get_attr(session_update, 'resumable')
 
+    prompt_tokens = response_tokens = cached_tokens = total_tokens = None
+    usage = _get_attr(event, 'usage_metadata', 'usageMetadata')
+    if usage is not None:
+        prompt_tokens = _get_attr(usage, 'prompt_token_count', 'promptTokenCount')
+        response_tokens = _get_attr(usage, 'response_token_count', 'responseTokenCount')
+        cached_tokens = _get_attr(usage, 'cached_content_token_count', 'cachedContentTokenCount')
+        total_tokens = _get_attr(usage, 'total_token_count', 'totalTokenCount')
+
     return EventSummary(
         text=text,
         audio_chunks=audio_chunks,
@@ -135,4 +162,8 @@ def summarize_event(event: Any) -> EventSummary:
         new_handle=new_handle,
         resumable=resumable,
         user_text=user_text,
+        prompt_tokens=prompt_tokens,
+        response_tokens=response_tokens,
+        cached_tokens=cached_tokens,
+        total_tokens=total_tokens,
     )
