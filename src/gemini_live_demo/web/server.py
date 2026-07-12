@@ -228,6 +228,19 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
 def create_app() -> FastAPI:
     app = FastAPI(title='Gemini Live Web')
 
+    @app.middleware('http')
+    async def no_cache_static(request: Request, call_next):
+        """Evita que el navegador sirva ``/static/*`` cacheado tras un deploy.
+
+        ``StaticFiles`` no manda ningun header de cache por defecto; el
+        navegador cachea con heuristica propia (Last-Modified) y puede seguir
+        sirviendo un ``app.js`` viejo hasta un hard-refresh manual.
+        """
+        response = await call_next(request)
+        if request.url.path.startswith('/static/'):
+            response.headers['Cache-Control'] = 'no-cache'
+        return response
+
     @app.get('/')
     async def index() -> FileResponse:
         return FileResponse(FRONTEND_DIR / 'index.html')

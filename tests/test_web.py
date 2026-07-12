@@ -196,6 +196,94 @@ def test_models_expone_call_enabled(monkeypatch):
     assert TestClient(app).get('/models').json()['call_enabled'] is True
 
 
+def test_agente_voz_sesion_sin_configurar_responde_503(monkeypatch):
+    """Sin AGENTE_VOZ_TOKEN/ID_PLANTILLA el proxy responde 503 y no intenta red."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import app
+
+    monkeypatch.delenv('AGENTE_VOZ_TOKEN', raising=False)
+    monkeypatch.delenv('AGENTE_VOZ_ID_PLANTILLA', raising=False)
+    res = TestClient(app).post('/agente-voz/sesion', json={'variables': {}})
+    assert res.status_code == 503
+    assert res.json()['codigo'] == 'agente_voz_no_configurado'
+
+
+def test_agente_voz_sesion_proxyea(monkeypatch):
+    """Con la config completa, el proxy reenvía url/token/plantilla/variables a agente_voz."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web import server
+
+    seen = {}
+
+    def fake_post(base_url, token, id_plantilla, variables):
+        seen.update(base_url=base_url, token=token, id_plantilla=id_plantilla, variables=variables)
+        return 201, {'session_id': 'ses_abc', 'ws_url': 'wss://agente.ai-you.io/v1/sesiones/ses_abc?token=tok123'}
+
+    monkeypatch.setenv('AGENTE_VOZ_URL', 'https://agente.ai-you.io/v1/agente-voz')
+    monkeypatch.setenv('AGENTE_VOZ_TOKEN', 'tok123')
+    monkeypatch.setenv('AGENTE_VOZ_ID_PLANTILLA', '139')
+    monkeypatch.setattr(server, '_post_to_agente_voz', fake_post)
+
+    res = TestClient(server.app).post('/agente-voz/sesion', json={'variables': {'lead_id': '1'}})
+    assert res.status_code == 201
+    assert res.json() == {'session_id': 'ses_abc', 'ws_url': 'wss://agente.ai-you.io/v1/sesiones/ses_abc?token=tok123'}
+    assert seen == {
+        'base_url': 'https://agente.ai-you.io/v1/agente-voz',
+        'token': 'tok123',
+        'id_plantilla': 139,
+        'variables': {'lead_id': '1'},
+    }
+
+
+def test_agente_voz_sesion_sin_variables_manda_dict_vacio(monkeypatch):
+    """Body sin 'variables' (o JSON invalido) no rompe el proxy: manda {}."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web import server
+
+    seen = {}
+
+    def fake_post(base_url, token, id_plantilla, variables):
+        seen['variables'] = variables
+        return 201, {'session_id': 'ses_abc'}
+
+    monkeypatch.setenv('AGENTE_VOZ_TOKEN', 'tok123')
+    monkeypatch.setenv('AGENTE_VOZ_ID_PLANTILLA', '139')
+    monkeypatch.setattr(server, '_post_to_agente_voz', fake_post)
+
+    res = TestClient(server.app).post('/agente-voz/sesion', content=b'')
+    assert res.status_code == 201
+    assert seen['variables'] == {}
+
+
+def test_models_expone_agente_voz_enabled(monkeypatch):
+    """``agente_voz_enabled`` refleja si TOKEN e ID_PLANTILLA están configurados."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import app
+
+    monkeypatch.delenv('AGENTE_VOZ_TOKEN', raising=False)
+    monkeypatch.delenv('AGENTE_VOZ_ID_PLANTILLA', raising=False)
+    assert TestClient(app).get('/models').json()['agente_voz_enabled'] is False
+
+    monkeypatch.setenv('AGENTE_VOZ_TOKEN', 'tok123')
+    monkeypatch.setenv('AGENTE_VOZ_ID_PLANTILLA', '139')
+    assert TestClient(app).get('/models').json()['agente_voz_enabled'] is True
+
+
+def test_static_no_cache_header():
+    """``/static/*`` manda Cache-Control: no-cache para evitar JS viejo tras un deploy."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import app
+
+    res = TestClient(app).get('/static/app.js')
+    assert res.status_code == 200
+    assert res.headers['cache-control'] == 'no-cache'
+
+
 def test_bridge_browser_to_gemini():
     """El audio del navegador se reenvia a Gemini y el disconnect cierra el puente."""
     adapter = _FakeAdapter(events=[], block_receive=True)  # Gemini calla
