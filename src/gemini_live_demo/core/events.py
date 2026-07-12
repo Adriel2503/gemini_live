@@ -18,6 +18,30 @@ def _get_attr(obj: Any, *names: str) -> Any:
     return None
 
 
+def _tokens_by_modality(details: Any) -> dict[str, int] | None:
+    """Convierte ``[{modality, token_count}, ...]`` (dict u objeto) a ``{'AUDIO': n, ...}``.
+
+    ``details`` es ``prompt_tokens_details``/``response_tokens_details`` de
+    ``UsageMetadata``: desglosa el conteo de tokens por modalidad (AUDIO,
+    TEXT, ...), util en una app de voz para saber cuanto del consumo es
+    audio real vs. texto (system prompt, transcripciones).
+    """
+    if not details:
+        return None
+    result: dict[str, int] = {}
+    for item in details:
+        if isinstance(item, dict):
+            modality = item.get('modality')
+            count = item.get('token_count') or item.get('tokenCount')
+        else:
+            modality = _get_attr(item, 'modality')
+            count = _get_attr(item, 'token_count', 'tokenCount')
+        if modality is None or count is None:
+            continue
+        result[str(getattr(modality, 'value', modality)).upper()] = count
+    return result or None
+
+
 @dataclass
 class EventSummary:
     text: str | None  # transcripcion de la IA (output)
@@ -40,6 +64,10 @@ class EventSummary:
     response_tokens: int | None = None
     cached_tokens: int | None = None
     total_tokens: int | None = None
+    # Desglose por modalidad, ej. {'AUDIO': 340, 'TEXT': 130}. None si el SDK
+    # no lo trae en este evento.
+    prompt_tokens_by_modality: dict[str, int] | None = None
+    response_tokens_by_modality: dict[str, int] | None = None
 
 
 def summarize_event(event: Any) -> EventSummary:
@@ -84,6 +112,12 @@ def summarize_event(event: Any) -> EventSummary:
         response_tokens = usage.get('response_token_count') or usage.get('responseTokenCount')
         cached_tokens = usage.get('cached_content_token_count') or usage.get('cachedContentTokenCount')
         total_tokens = usage.get('total_token_count') or usage.get('totalTokenCount')
+        prompt_tokens_by_modality = _tokens_by_modality(
+            usage.get('prompt_tokens_details') or usage.get('promptTokensDetails')
+        )
+        response_tokens_by_modality = _tokens_by_modality(
+            usage.get('response_tokens_details') or usage.get('responseTokensDetails')
+        )
         model_turn = sc.get('model_turn')
         model_turn_present = bool(model_turn)
         return EventSummary(
@@ -105,6 +139,8 @@ def summarize_event(event: Any) -> EventSummary:
             response_tokens=response_tokens,
             cached_tokens=cached_tokens,
             total_tokens=total_tokens,
+            prompt_tokens_by_modality=prompt_tokens_by_modality,
+            response_tokens_by_modality=response_tokens_by_modality,
         )
 
     sc = getattr(event, 'server_content', None)
@@ -143,12 +179,19 @@ def summarize_event(event: Any) -> EventSummary:
         resumable = _get_attr(session_update, 'resumable')
 
     prompt_tokens = response_tokens = cached_tokens = total_tokens = None
+    prompt_tokens_by_modality = response_tokens_by_modality = None
     usage = _get_attr(event, 'usage_metadata', 'usageMetadata')
     if usage is not None:
         prompt_tokens = _get_attr(usage, 'prompt_token_count', 'promptTokenCount')
         response_tokens = _get_attr(usage, 'response_token_count', 'responseTokenCount')
         cached_tokens = _get_attr(usage, 'cached_content_token_count', 'cachedContentTokenCount')
         total_tokens = _get_attr(usage, 'total_token_count', 'totalTokenCount')
+        prompt_tokens_by_modality = _tokens_by_modality(
+            _get_attr(usage, 'prompt_tokens_details', 'promptTokensDetails')
+        )
+        response_tokens_by_modality = _tokens_by_modality(
+            _get_attr(usage, 'response_tokens_details', 'responseTokensDetails')
+        )
 
     return EventSummary(
         text=text,
@@ -166,4 +209,6 @@ def summarize_event(event: Any) -> EventSummary:
         response_tokens=response_tokens,
         cached_tokens=cached_tokens,
         total_tokens=total_tokens,
+        prompt_tokens_by_modality=prompt_tokens_by_modality,
+        response_tokens_by_modality=response_tokens_by_modality,
     )

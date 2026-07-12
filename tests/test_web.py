@@ -121,6 +121,7 @@ def test_bridge_forwards_usage_metadata():
     usage_msgs = [m for m in ws.sent_json if m.get('type') == 'usage']
     assert usage_msgs == [{
         'type': 'usage', 'prompt_tokens': 50, 'response_tokens': 20, 'cached_tokens': None, 'total_tokens': 70,
+        'prompt_tokens_by_modality': None, 'response_tokens_by_modality': None,
     }]
 
 

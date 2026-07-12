@@ -42,11 +42,36 @@ function resetMetrics() {
   turnsEl.innerHTML = '';
 }
 
+const MODALITY_LABEL = { AUDIO: 'audio', TEXT: 'texto', IMAGE: 'imagen', VIDEO: 'video', DOCUMENT: 'doc' };
+const MODALITY_CLASS = { AUDIO: 'tm-audio', TEXT: 'tm-text' };
+
+// {AUDIO: 340, TEXT: 130} -> chips HTML "● audio 340" "● texto 130"
+function renderModalityChips(byModality) {
+  if (!byModality) return '';
+  return Object.entries(byModality)
+    .map(([modality, count]) => {
+      const cls = MODALITY_CLASS[modality] || 'tm-other';
+      const label = MODALITY_LABEL[modality] || modality.toLowerCase();
+      return `<span class="tm-chip ${cls}"><span class="tm-dot"></span>${label} <b>${count}</b></span>`;
+    })
+    .join('');
+}
+
+function renderModalitySection(promptChips, responseChips) {
+  if (!promptChips && !responseChips) return '';
+  const rows = [];
+  if (promptChips) rows.push(`<div class="turn-modality-row"><span class="tm-label">entrada</span><span class="tm-chips">${promptChips}</span></div>`);
+  if (responseChips) rows.push(`<div class="turn-modality-row"><span class="tm-label">salida</span><span class="tm-chips">${responseChips}</span></div>`);
+  return `<div class="turn-modality">${rows.join('')}</div>`;
+}
+
 function handleUsage(msg) {
   const promptTokens = msg.prompt_tokens ?? 0;
   const responseTokens = msg.response_tokens ?? 0;
   const cachedTokens = msg.cached_tokens ?? 0;
   const totalTokens = msg.total_tokens ?? (promptTokens + responseTokens);
+  const promptChips = renderModalityChips(msg.prompt_tokens_by_modality);
+  const responseChips = renderModalityChips(msg.response_tokens_by_modality);
 
   sessionTokens.prompt += promptTokens;
   sessionTokens.response += responseTokens;
@@ -66,7 +91,8 @@ function handleUsage(msg) {
       <span>salida <b>${responseTokens}</b></span>
       ${cachedTokens ? `<span>caché <b>${cachedTokens}</b></span>` : ''}
       <span class="t-total">total <b>${totalTokens}</b></span>
-    </div>`;
+    </div>
+    ${renderModalitySection(promptChips, responseChips)}`;
   turnsEl.appendChild(row);
   turnsEl.scrollTop = turnsEl.scrollHeight;
 }
@@ -106,6 +132,30 @@ function log(msg, cls = 'log-sys') {
   line.textContent = msg;
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
+  return line;
+}
+
+// La transcripcion (Gemini y usuario) llega en fragmentos, no de una vez:
+// varios eventos "text"/"user_text" por turno. Se acumulan en la MISMA linea
+// hasta que el turno termina (turn_complete/interrupted), asi cada turno
+// queda en una sola fila del registro en vez de una fila por fragmento.
+let currentAiLine = null;
+let currentUserLine = null;
+
+function appendStreamed(text, cls, prefix, getLine, setLine) {
+  let line = getLine();
+  if (!line) {
+    line = log(prefix + text, cls);
+    setLine(line);
+  } else {
+    line.textContent += text;
+  }
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function finalizeStreamedLines() {
+  currentAiLine = null;
+  currentUserLine = null;
 }
 
 function setState(text, mode) {
@@ -185,6 +235,7 @@ modelSel.addEventListener('change', () => {
 
 async function start() {
   resetMetrics();
+  finalizeStreamedLines();
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
@@ -222,10 +273,12 @@ async function start() {
   ws.onmessage = (event) => {
     if (typeof event.data === 'string') {
       const msg = JSON.parse(event.data);
-      if (msg.type === 'text') log('Gemini: ' + msg.text, 'log-ai');
-      else if (msg.type === 'user_text') log('Tú: ' + msg.text, 'log-sys');
-      else if (msg.type === 'interrupted') { stopPlayback(); log('(interrumpido)', 'log-sys'); }
-      else if (msg.type === 'turn_complete') { /* fin de turno */ }
+      if (msg.type === 'text') {
+        appendStreamed(msg.text, 'log-ai', 'Gemini: ', () => currentAiLine, (l) => { currentAiLine = l; });
+      } else if (msg.type === 'user_text') {
+        appendStreamed(msg.text, 'log-sys', 'Tú: ', () => currentUserLine, (l) => { currentUserLine = l; });
+      } else if (msg.type === 'interrupted') { stopPlayback(); finalizeStreamedLines(); log('(interrumpido)', 'log-sys'); }
+      else if (msg.type === 'turn_complete') { finalizeStreamedLines(); }
       else if (msg.type === 'status' && msg.state === 'ready') log('Sesión de Gemini lista. Ya puedes hablar.', 'log-sys');
       else if (msg.type === 'status' && msg.state === 'go_away') log('El servidor cerró la sesión (límite alcanzado).', 'log-sys');
       else if (msg.type === 'usage') handleUsage(msg);

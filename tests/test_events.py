@@ -91,6 +91,21 @@ def test_dict_extracts_usage_metadata():
     assert s.total_tokens == 165
 
 
+def test_dict_extracts_usage_modality_breakdown():
+    event = {
+        'usage_metadata': {
+            'prompt_token_count': 470,
+            'prompt_tokens_details': [
+                {'modality': 'AUDIO', 'token_count': 340},
+                {'modality': 'TEXT', 'token_count': 130},
+            ],
+        }
+    }
+    s = summarize_event(event)
+    assert s.prompt_tokens_by_modality == {'AUDIO': 340, 'TEXT': 130}
+    assert s.response_tokens_by_modality is None
+
+
 def test_dict_empty_event_is_all_false():
     s = summarize_event({})
     assert s.text is None
@@ -129,6 +144,18 @@ def test_object_extracts_usage_metadata():
     assert s.response_tokens == 30
     assert s.cached_tokens is None
     assert s.total_tokens == 110
+
+
+def test_object_extracts_usage_modality_breakdown():
+    modality = SimpleNamespace(value='AUDIO')  # enum-like, con .value
+    details = [SimpleNamespace(modality=modality, token_count=200)]
+    usage = SimpleNamespace(
+        prompt_token_count=200, response_token_count=None, cached_content_token_count=None,
+        total_token_count=None, prompt_tokens_details=details, response_tokens_details=None,
+    )
+    event = SimpleNamespace(server_content=None, usage_metadata=usage)
+    s = summarize_event(event)
+    assert s.prompt_tokens_by_modality == {'AUDIO': 200}
 
 
 def test_object_interrupted_flag():

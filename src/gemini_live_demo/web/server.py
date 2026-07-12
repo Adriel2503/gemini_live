@@ -156,6 +156,8 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
                             'response_tokens': summary.response_tokens,
                             'cached_tokens': summary.cached_tokens,
                             'total_tokens': summary.total_tokens,
+                            'prompt_tokens_by_modality': summary.prompt_tokens_by_modality,
+                            'response_tokens_by_modality': summary.response_tokens_by_modality,
                         })
                     if summary.audio_chunks and not turn_audio_started:
                         # Primer chunk de respuesta del turno: latencia desde el

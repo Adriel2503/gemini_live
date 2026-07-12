@@ -137,6 +137,22 @@
     .turn-row .turn-stats b { color: var(--text); font-weight: 600; }
     .turn-row .turn-stats .t-total b { color: var(--accent); }
 
+    /* Desglose por modalidad (audio vs texto): filas propias, no una linea suelta. */
+    .turn-modality { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-soft); }
+    .turn-modality-row { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 3px; }
+    .turn-modality-row .tm-label { color: var(--text-muted); flex: 0 0 42px; }
+    .turn-modality-row .tm-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tm-chip {
+      display: inline-flex; align-items: center; gap: 4px; background: var(--card-bg);
+      border: 1px solid var(--border-soft); border-radius: 999px; padding: 1px 8px 1px 6px;
+      font-size: 10px; font-variant-numeric: tabular-nums;
+    }
+    .tm-chip .tm-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .tm-chip.tm-audio .tm-dot { background: var(--cyan); }
+    .tm-chip.tm-text .tm-dot { background: var(--accent); }
+    .tm-chip.tm-other .tm-dot { background: var(--text-muted); }
+    .tm-chip b { color: var(--text); font-weight: 600; }
+
     /* Celular: la tarjeta ocupa el ancho, la llamada apila input y botón. */
     @media (max-width: 760px) {
       .layout { flex-direction: column; }
