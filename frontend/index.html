@@ -156,7 +156,10 @@
     /* Celular: la tarjeta ocupa el ancho, la llamada apila input y botón. */
     @media (max-width: 760px) {
       .layout { flex-direction: column; }
-      .metrics { flex-basis: auto; width: 100%; }
+      /* flex-basis:480px de .card es un ANCHO en fila; en columna se vuelve
+         un ALTO preferido y desalinea las dos cajas. Se resetea junto con
+         .metrics para que ambas midan 100% del ancho disponible. */
+      .card, .metrics { flex: none; width: 100%; }
     }
     @media (max-width: 480px) {
       body { padding: 12px; align-items: stretch; }
