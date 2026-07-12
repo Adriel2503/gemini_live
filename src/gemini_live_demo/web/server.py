@@ -170,7 +170,7 @@ async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
                             logger.info('[web] audio response started')
                     for chunk in summary.audio_chunks:
                         await ws.send_bytes(chunk)
-                    if summary.generation_complete or summary.turn_complete:
+                    if summary.done:
                         await ws.send_json({'type': 'turn_complete'})
                         logger.info('[web] turn complete')
                         turn_audio_started = False

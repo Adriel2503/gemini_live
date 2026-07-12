@@ -31,6 +31,122 @@ console = Console()
 logger = logging.getLogger('gemini_live_demo')
 
 
+def _new_turn_state() -> dict[str, Any]:
+    """Acumuladores de un turno en curso (modo continuo). Se resetea por turno."""
+    return {
+        'event_count': 0,
+        'response_audio_chunks': 0,
+        'response_audio_bytes': 0,
+        'text_parts': [],
+        'turn_started_at': None,
+        'first_audio_at': None,
+        'interrupted_seen': False,
+    }
+
+
+def _note_vad_signal(summary: EventSummary, vad_stats: dict[str, Any]) -> None:
+    """Actualiza los contadores de VAD (in-place) a partir de un evento."""
+    vad_type = summary.voice_activity_type or summary.vad_signal_type
+    if not vad_type:
+        return
+    vad_stats['last_type'] = vad_type
+    vad_stats['last_offset'] = summary.voice_activity_offset
+    if 'START' in vad_type or 'SOS' in vad_type:
+        vad_stats['start_count'] += 1
+    if 'END' in vad_type or 'EOS' in vad_type:
+        vad_stats['end_count'] += 1
+    logger.debug('[vad] type=%s offset=%s', vad_type, summary.voice_activity_offset)
+
+
+def _finalize_turn(
+    *,
+    settings: Settings,
+    turn_index: int,
+    now: float,
+    summary: EventSummary,
+    turn_state: dict[str, Any],
+    queue_stats: dict[str, int],
+    dropped_chunks: dict[str, int],
+    stream_stats: dict[str, Any],
+    vad_stats: dict[str, Any],
+    player: StreamingAudioPlayer,
+    session_id: str,
+    metrics: MetricsCsv,
+    audio_queue: queue.Queue,
+) -> int:
+    """Cierra un turno: logea, escribe la fila de métricas y devuelve el próximo turn_index.
+
+    Si el marcador de fin de turno no trae contenido (ni texto, ni audio, ni
+    interrupción) se considera vacío y se ignora sin incrementar turn_index
+    (y sin resetear ``queue_stats['max_size']``: el backlog sigue siendo el
+    de la conversación en curso, no el de un marcador vacío).
+    """
+    response_text = ''.join(turn_state['text_parts']).strip()
+    has_turn_payload = bool(
+        response_text or turn_state['response_audio_chunks'] or turn_state['interrupted_seen']
+    )
+    if not has_turn_payload:
+        logger.info(
+            '[live] ignored empty turn marker generation_complete=%s turn_complete=%s',
+            summary.generation_complete,
+            summary.turn_complete,
+        )
+        return turn_index
+
+    turn_index += 1
+    turn_started_at = turn_state['turn_started_at']
+    first_audio_at = turn_state['first_audio_at']
+    elapsed_ms = int((now - turn_started_at) * 1000) if turn_started_at is not None else 0
+    first_audio_latency_ms = (
+        int((first_audio_at - turn_started_at) * 1000)
+        if first_audio_at is not None and turn_started_at is not None
+        else None
+    )
+    max_queue_size = queue_stats['max_size']
+    logger.info(
+        '[live] turn done events=%d text=%s audio_chunks=%d audio_bytes=%d first_audio_latency_ms=%s duration_ms=%d max_queue_size=%d dropped_chunks=%d generation_complete=%s turn_complete=%s',
+        turn_state['event_count'],
+        'yes' if response_text else 'no',
+        turn_state['response_audio_chunks'],
+        turn_state['response_audio_bytes'],
+        first_audio_latency_ms if first_audio_latency_ms is not None else 'n/a',
+        elapsed_ms,
+        max_queue_size,
+        dropped_chunks['count'],
+        'yes' if summary.generation_complete else 'no',
+        'yes' if summary.turn_complete else 'no',
+    )
+    metrics.write_row(
+        build_metrics_row(
+            settings=settings,
+            session_id=session_id,
+            turn_index=turn_index,
+            language=normalize_language_code(settings.language, settings.model),
+            event_count=turn_state['event_count'],
+            response_text=response_text,
+            response_audio_chunks=turn_state['response_audio_chunks'],
+            response_audio_bytes=turn_state['response_audio_bytes'],
+            generation_complete=summary.generation_complete,
+            turn_complete=summary.turn_complete,
+            interrupted=turn_state['interrupted_seen'],
+            first_audio_latency_ms=first_audio_latency_ms,
+            turn_duration_ms=elapsed_ms,
+            max_queue_size=max_queue_size,
+            dropped_chunks=dropped_chunks['count'],
+            stream_stats=stream_stats,
+            vad_stats=vad_stats,
+            player=player,
+            player_elapsed_ms=(time.perf_counter() - player.started_at) * 1000,
+            created_at=time.strftime('%Y-%m-%dT%H:%M:%S'),
+        )
+    )
+    stream_stats['model_speaking'] = False
+    if response_text:
+        logger.info('[live] gemini_text=%s', response_text)
+    queue_stats['max_size'] = audio_queue.qsize()
+    return turn_index
+
+
 class DemoRunner:
     def __init__(self, adapter: GeminiLiveAdapter, settings: Settings) -> None:
         self.adapter = adapter
@@ -193,13 +309,7 @@ class DemoRunner:
 
         async def receive_model() -> None:
             turn_index = 0
-            event_count = 0
-            response_audio_chunks = 0
-            response_audio_bytes = 0
-            text_parts: list[str] = []
-            turn_started_at: float | None = None
-            first_audio_at: float | None = None
-            interrupted_seen = False
+            turn_state = _new_turn_state()
             while not stop_event.is_set():
                 assert self._session is not None
                 saw_event = False
@@ -208,101 +318,44 @@ class DemoRunner:
                     if stop_event.is_set():
                         break
                     now = time.perf_counter()
-                    event_count += 1
-                    if turn_started_at is None:
-                        turn_started_at = now
+                    turn_state['event_count'] += 1
+                    if turn_state['turn_started_at'] is None:
+                        turn_state['turn_started_at'] = now
                     summary = summarize_event(event)
                     self.adapter.note_event(summary)
-                    if summary.voice_activity_type or summary.vad_signal_type:
-                        vad_type = summary.voice_activity_type or summary.vad_signal_type
-                        vad_stats['last_type'] = vad_type
-                        vad_stats['last_offset'] = summary.voice_activity_offset
-                        if vad_type and ('START' in vad_type or 'SOS' in vad_type):
-                            vad_stats['start_count'] += 1
-                        if vad_type and ('END' in vad_type or 'EOS' in vad_type):
-                            vad_stats['end_count'] += 1
-                        logger.debug('[vad] type=%s offset=%s', vad_type, summary.voice_activity_offset)
+                    _note_vad_signal(summary, vad_stats)
                     if summary.interrupted:
-                        interrupted_seen = True
+                        turn_state['interrupted_seen'] = True
                         stream_stats['model_speaking'] = False
                         logger.warning('[live] interrupted=true')
                         player.interrupt()
                     if summary.text:
-                        text_parts.append(summary.text)
+                        turn_state['text_parts'].append(summary.text)
                     if summary.audio_chunks:
                         stream_stats['model_speaking'] = True
-                        if first_audio_at is None:
-                            first_audio_at = now
+                        if turn_state['first_audio_at'] is None:
+                            turn_state['first_audio_at'] = now
                         for chunk in summary.audio_chunks:
-                            response_audio_chunks += 1
-                            response_audio_bytes += len(chunk)
+                            turn_state['response_audio_chunks'] += 1
+                            turn_state['response_audio_bytes'] += len(chunk)
                             player.write(chunk)
-                    if summary.generation_complete or summary.turn_complete:
-                        response_text = ''.join(text_parts).strip()
-                        has_turn_payload = bool(response_text or response_audio_chunks or interrupted_seen)
-                        if not has_turn_payload:
-                            logger.info('[live] ignored empty turn marker generation_complete=%s turn_complete=%s', summary.generation_complete, summary.turn_complete)
-                            event_count = 0
-                            turn_started_at = None
-                            first_audio_at = None
-                            continue
-                        turn_index += 1
-                        elapsed_ms = int((now - turn_started_at) * 1000) if turn_started_at is not None else 0
-                        first_audio_latency_ms = (
-                            int((first_audio_at - turn_started_at) * 1000)
-                            if first_audio_at is not None and turn_started_at is not None
-                            else None
+                    if summary.done:
+                        turn_index = _finalize_turn(
+                            settings=self.settings,
+                            turn_index=turn_index,
+                            now=now,
+                            summary=summary,
+                            turn_state=turn_state,
+                            queue_stats=queue_stats,
+                            dropped_chunks=dropped_chunks,
+                            stream_stats=stream_stats,
+                            vad_stats=vad_stats,
+                            player=player,
+                            session_id=session_id,
+                            metrics=metrics,
+                            audio_queue=audio_queue,
                         )
-                        max_queue_size = queue_stats['max_size']
-                        max_queue_delay_ms = max_queue_size * self.settings.chunk_ms
-                        logger.info(
-                            '[live] turn done events=%d text=%s audio_chunks=%d audio_bytes=%d first_audio_latency_ms=%s duration_ms=%d max_queue_size=%d dropped_chunks=%d generation_complete=%s turn_complete=%s',
-                            event_count,
-                            'yes' if response_text else 'no',
-                            response_audio_chunks,
-                            response_audio_bytes,
-                            first_audio_latency_ms if first_audio_latency_ms is not None else 'n/a',
-                            elapsed_ms,
-                            max_queue_size,
-                            dropped_chunks['count'],
-                            'yes' if summary.generation_complete else 'no',
-                            'yes' if summary.turn_complete else 'no',
-                        )
-                        metrics.write_row(
-                            build_metrics_row(
-                                settings=self.settings,
-                                session_id=session_id,
-                                turn_index=turn_index,
-                                language=normalize_language_code(self.settings.language, self.settings.model),
-                                event_count=event_count,
-                                response_text=response_text,
-                                response_audio_chunks=response_audio_chunks,
-                                response_audio_bytes=response_audio_bytes,
-                                generation_complete=summary.generation_complete,
-                                turn_complete=summary.turn_complete,
-                                interrupted=interrupted_seen,
-                                first_audio_latency_ms=first_audio_latency_ms,
-                                turn_duration_ms=elapsed_ms,
-                                max_queue_size=max_queue_size,
-                                dropped_chunks=dropped_chunks['count'],
-                                stream_stats=stream_stats,
-                                vad_stats=vad_stats,
-                                player=player,
-                                player_elapsed_ms=(time.perf_counter() - player.started_at) * 1000,
-                                created_at=time.strftime('%Y-%m-%dT%H:%M:%S'),
-                            )
-                        )
-                        stream_stats['model_speaking'] = False
-                        if response_text:
-                            logger.info('[live] gemini_text=%s', response_text)
-                        event_count = 0
-                        response_audio_chunks = 0
-                        response_audio_bytes = 0
-                        text_parts.clear()
-                        turn_started_at = None
-                        first_audio_at = None
-                        interrupted_seen = False
-                        queue_stats['max_size'] = audio_queue.qsize()
+                        turn_state = _new_turn_state()
                     if summary.go_away:
                         stop_event.set()
                         break
@@ -404,8 +457,8 @@ class DemoRunner:
                         response_audio.extend(summary.audio_chunks)
                     if summary.done:
                         break
-            except Exception as exc:
-                logger.warning('[turn %d] receive failed: %s', turn_index, exc)
+            except Exception:
+                logger.exception('[turn %d] receive failed', turn_index)
                 await self._reconnect_session('receive_failure')
                 continue
 
