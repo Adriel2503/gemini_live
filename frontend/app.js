@@ -19,6 +19,11 @@ const callBtn = document.getElementById('callBtn');
 const tabBrowser = document.getElementById('tabBrowser');
 const tabCall = document.getElementById('tabCall');
 const panelBrowser = document.getElementById('panel-browser');
+const tabAgenteVoz = document.getElementById('tabAgenteVoz');
+const panelAgenteVoz = document.getElementById('panel-agente-voz');
+const toggleAgenteBtn = document.getElementById('toggleAgente');
+const dotAgente = document.getElementById('dotAgente');
+const stateAgenteEl = document.getElementById('stateAgente');
 
 // --- Métricas de tokens (panel lateral): historial turno a turno ---
 // Gemini manda usage_metadata por turno (no acumulado). Guardamos cada turno
@@ -102,17 +107,20 @@ const MODEL_STORAGE_KEY = 'gemini_live_model';
 // --- Pestañas: "Desde el navegador" vs "Por teléfono" son formas distintas
 // de probar, no pasos secuenciales, así que solo una está visible a la vez. ---
 function selectTab(tab) {
-  const showCall = tab === 'call';
-  tabBrowser.classList.toggle('active', !showCall);
-  tabBrowser.setAttribute('aria-selected', String(!showCall));
-  tabCall.classList.toggle('active', showCall);
-  tabCall.setAttribute('aria-selected', String(showCall));
-  panelBrowser.hidden = showCall;
-  callSection.hidden = !showCall;
+  tabBrowser.classList.toggle('active', tab === 'browser');
+  tabBrowser.setAttribute('aria-selected', String(tab === 'browser'));
+  tabCall.classList.toggle('active', tab === 'call');
+  tabCall.setAttribute('aria-selected', String(tab === 'call'));
+  tabAgenteVoz.classList.toggle('active', tab === 'agente-voz');
+  tabAgenteVoz.setAttribute('aria-selected', String(tab === 'agente-voz'));
+  panelBrowser.hidden = tab !== 'browser';
+  callSection.hidden = tab !== 'call';
+  panelAgenteVoz.hidden = tab !== 'agente-voz';
 }
 
 tabBrowser.addEventListener('click', () => selectTab('browser'));
 tabCall.addEventListener('click', () => selectTab('call'));
+tabAgenteVoz.addEventListener('click', () => selectTab('agente-voz'));
 
 let running = false;
 let ws = null;
@@ -223,6 +231,9 @@ async function loadModels() {
     // La pestaña de llamada telefónica solo aparece si el servidor tiene
     // configurado el bridge de Asterisk (BRIDGE_URL).
     if (data.call_enabled) tabCall.hidden = false;
+    // La pestaña de agente_voz solo aparece si el servidor tiene el token
+    // y la plantilla configurados (AGENTE_VOZ_TOKEN / AGENTE_VOZ_ID_PLANTILLA).
+    if (data.agente_voz_enabled) tabAgenteVoz.hidden = false;
   } catch (err) {
     modelSel.innerHTML = '<option>Error cargando modelos</option>';
     log('No se pudieron cargar los modelos: ' + err.message, 'log-err');
@@ -354,5 +365,212 @@ async function makeCall() {
 
 callBtn.addEventListener('click', makeCall);
 phoneInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') makeCall(); });
+
+// --- Modo "Agente Voz": habla directo contra agente_voz (sin telefono, sin
+// pasar por el Gemini propio de esta demo). El navegador solo es entrada/
+// salida de audio; el prompt/tools/tipificacion reales viven en agente_voz. ---
+
+let avRunning = false;
+let avWs = null;
+let avMicStream = null;
+let avCaptureCtx = null;
+let avProcessor = null;
+let avSourceNode = null;
+
+// Reproduccion propia (sample rate lo define la sesion de agente_voz, no
+// necesariamente 24kHz como el modo Gemini directo).
+let avPlayCtx = null;
+let avNextTime = 0;
+let avActiveSources = [];
+let avSampleRate = 16000;
+
+function avSetState(text, mode) {
+  stateAgenteEl.textContent = text;
+  dotAgente.className = 'dot' + (mode ? ' ' + mode : '');
+}
+
+function avPlayChunk(int16) {
+  if (!avPlayCtx) return;
+  const f32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 32768;
+  const buffer = avPlayCtx.createBuffer(1, f32.length, avSampleRate);
+  buffer.getChannelData(0).set(f32);
+  const src = avPlayCtx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(avPlayCtx.destination);
+  const now = avPlayCtx.currentTime;
+  if (avNextTime < now) avNextTime = now + 0.04;
+  src.start(avNextTime);
+  avNextTime += buffer.duration;
+  avActiveSources.push(src);
+  avSetState('Agente hablando…', 'speaking');
+  src.onended = () => {
+    avActiveSources = avActiveSources.filter((s) => s !== src);
+    if (avActiveSources.length === 0 && avRunning) avSetState('Escuchando…', 'live');
+  };
+}
+
+function avStopPlayback() {
+  avActiveSources.forEach((s) => { try { s.stop(); } catch (e) {} });
+  avActiveSources = [];
+  avNextTime = 0;
+}
+
+let avCurrentAiLine = null;
+let avCurrentUserLine = null;
+
+function avFinalizeLines() {
+  avCurrentAiLine = null;
+  avCurrentUserLine = null;
+}
+
+// agente_voz manda el texto ACUMULADO del turno en cada transcript_partial/
+// final (no un fragmento nuevo como el protocolo Python) — hay que
+// reemplazar el contenido de la linea, no concatenarlo.
+function avSetTranscriptLine(texto, cls, prefix, getLine, setLine) {
+  let line = getLine();
+  if (!line) {
+    line = log(prefix + texto, cls);
+    setLine(line);
+  } else {
+    line.textContent = prefix + texto;
+  }
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function startAgenteVoz() {
+  finalizeStreamedLines();
+  avFinalizeLines();
+  avSetState('Creando sesión…', null);
+  toggleAgenteBtn.disabled = true;
+
+  let sesion;
+  try {
+    const res = await fetch('/agente-voz/sesion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variables: {} }),
+    });
+    sesion = await res.json();
+    if (!res.ok || !sesion.ws_url) {
+      log('No se pudo crear la sesión: ' + (sesion.msg || `HTTP ${res.status}`), 'log-err');
+      avSetState('Desconectado', null);
+      toggleAgenteBtn.disabled = false;
+      return;
+    }
+  } catch (err) {
+    log('Error creando sesión de agente_voz: ' + err.message, 'log-err');
+    avSetState('Desconectado', null);
+    toggleAgenteBtn.disabled = false;
+    return;
+  }
+
+  avSampleRate = sesion.sample_rate_hz || 16000;
+
+  try {
+    avMicStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+    });
+  } catch (err) {
+    log('No se pudo acceder al micrófono: ' + err.message, 'log-err');
+    avSetState('Desconectado', null);
+    toggleAgenteBtn.disabled = false;
+    return;
+  }
+
+  avPlayCtx = new (window.AudioContext || window.webkitAudioContext)();
+  await avPlayCtx.resume();
+  avCaptureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: avSampleRate });
+  await avCaptureCtx.resume();
+
+  avWs = new WebSocket(sesion.ws_url);
+  avWs.binaryType = 'arraybuffer';
+
+  avWs.onopen = () => {
+    log('Conectado a agente_voz.', 'log-sys');
+    avSetState('Escuchando…', 'live');
+    avSourceNode = avCaptureCtx.createMediaStreamSource(avMicStream);
+    avProcessor = avCaptureCtx.createScriptProcessor(2048, 1, 1);
+    avProcessor.onaudioprocess = (e) => {
+      if (!avWs || avWs.readyState !== WebSocket.OPEN) return;
+      const pcm = floatTo16(e.inputBuffer.getChannelData(0));
+      avWs.send(pcm.buffer);
+    };
+    avSourceNode.connect(avProcessor);
+    avProcessor.connect(avCaptureCtx.destination);
+    avRunning = true;
+    toggleAgenteBtn.disabled = false;
+    toggleAgenteBtn.textContent = 'Detener';
+    toggleAgenteBtn.classList.add('on');
+  };
+
+  avWs.onmessage = (event) => {
+    if (typeof event.data === 'string') {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch (e) { return; }
+      switch (msg.type) {
+        case 'transcript_partial':
+        case 'transcript_final': {
+          const esAgente = msg.rol === 'agente';
+          avSetTranscriptLine(
+            msg.texto || '',
+            esAgente ? 'log-ai' : 'log-you',
+            esAgente ? 'Agente: ' : 'Tú: ',
+            () => (esAgente ? avCurrentAiLine : avCurrentUserLine),
+            (l) => { if (esAgente) avCurrentAiLine = l; else avCurrentUserLine = l; }
+          );
+          if (msg.type === 'transcript_final') { if (esAgente) avCurrentAiLine = null; else avCurrentUserLine = null; }
+          break;
+        }
+        case 'playback_clear_buffer':
+          avStopPlayback();
+          avFinalizeLines();
+          log('(interrumpido — barge-in)', 'log-sys');
+          break;
+        case 'agent_started_speaking':
+          avSetState('Agente hablando…', 'speaking');
+          break;
+        case 'agent_stopped_speaking':
+          if (avRunning) avSetState('Escuchando…', 'live');
+          break;
+        case 'tool_call':
+          log(`Tool: ${msg.name} ${JSON.stringify(msg.args || {})}`, 'log-sys');
+          break;
+        case 'pong':
+          break;
+        default:
+          log('Evento: ' + event.data, 'log-sys');
+      }
+      return;
+    }
+    // Binario: audio PCM16 @ avSampleRate para reproducir.
+    avPlayChunk(new Int16Array(event.data));
+  };
+
+  avWs.onclose = () => { if (avRunning) stopAgenteVoz(); };
+  avWs.onerror = () => log('Error de WebSocket (agente_voz).', 'log-err');
+}
+
+function stopAgenteVoz() {
+  avRunning = false;
+  toggleAgenteBtn.disabled = false;
+  toggleAgenteBtn.textContent = 'Iniciar conversación';
+  toggleAgenteBtn.classList.remove('on');
+  avSetState('Desconectado', null);
+
+  avStopPlayback();
+  if (avProcessor) { avProcessor.disconnect(); avProcessor.onaudioprocess = null; avProcessor = null; }
+  if (avSourceNode) { avSourceNode.disconnect(); avSourceNode = null; }
+  if (avMicStream) { avMicStream.getTracks().forEach((t) => t.stop()); avMicStream = null; }
+  if (avCaptureCtx) { avCaptureCtx.close(); avCaptureCtx = null; }
+  if (avPlayCtx) { avPlayCtx.close(); avPlayCtx = null; }
+  if (avWs) { try { avWs.close(); } catch (e) {} avWs = null; }
+  log('Conversación con agente_voz detenida.', 'log-sys');
+}
+
+toggleAgenteBtn.addEventListener('click', () => {
+  if (avRunning) stopAgenteVoz();
+  else startAgenteVoz();
+});
 
 loadModels();

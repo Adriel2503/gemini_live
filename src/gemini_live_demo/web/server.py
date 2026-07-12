@@ -93,6 +93,32 @@ def _post_to_bridge(bridge_url: str, token: str, number: str, model: str = '') -
         return 502, {'success': False, 'error': f'no se pudo contactar al bridge: {exc}'}
 
 
+def _post_to_agente_voz(base_url: str, token: str, id_plantilla: int, variables: dict) -> tuple[int, dict]:
+    """POST sincrónico a agente_voz para crear una sesión (se corre en un thread).
+
+    Mismo patrón que ``_post_to_bridge``: el token real vive solo en el
+    servidor, el navegador nunca lo ve.
+    """
+    payload = {'id_plantilla': id_plantilla, 'codec': 'pcm_s16le_16k', 'variables': variables}
+    req = urllib.request.Request(
+        base_url.rstrip('/') + '/sesiones',
+        data=json.dumps(payload).encode(),
+        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        try:
+            payload = json.loads(exc.read().decode())
+        except Exception:
+            payload = {'codigo': 'error_agente_voz', 'msg': f'agente_voz respondio HTTP {exc.code}'}
+        return exc.code, payload
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return 502, {'codigo': 'error_agente_voz', 'msg': f'no se pudo contactar a agente_voz: {exc}'}
+
+
 async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
     """Puente bidireccional navegador <-> Gemini para una conexion.
 
@@ -221,7 +247,12 @@ def create_app() -> FastAPI:
         default = env_model if env_model in _ALLOWED_MODEL_IDS else ALLOWED_MODELS[0]['id']
         # call_enabled: el frontend muestra la sección "Llamada telefónica"
         # solo si el bridge de Asterisk está configurado en este despliegue.
-        return {'models': ALLOWED_MODELS, 'default': default, 'call_enabled': bool(os.getenv('BRIDGE_URL'))}
+        return {
+            'models': ALLOWED_MODELS,
+            'default': default,
+            'call_enabled': bool(os.getenv('BRIDGE_URL')),
+            'agente_voz_enabled': bool(os.getenv('AGENTE_VOZ_TOKEN')) and bool(os.getenv('AGENTE_VOZ_ID_PLANTILLA')),
+        }
 
     @app.post('/call')
     async def call(request: Request) -> JSONResponse:
@@ -247,6 +278,37 @@ def create_app() -> FastAPI:
         token = os.getenv('BRIDGE_TOKEN', '')
         status, payload = await asyncio.to_thread(_post_to_bridge, bridge_url, token, number, model)
         logger.info('[web] call proxy number=%s -> bridge status=%d', number, status)
+        return JSONResponse(payload, status_code=status)
+
+    @app.post('/agente-voz/sesion')
+    async def agente_voz_sesion(request: Request) -> JSONResponse:
+        """Proxy hacia agente_voz: crea una sesión y devuelve su ws_url.
+
+        El token real (AGENTE_VOZ_TOKEN) vive solo en el servidor; el
+        navegador nunca lo ve. El navegador se conecta directo al ws_url
+        devuelto — este servidor no participa en el audio de esta sesión.
+        """
+        base_url = os.getenv('AGENTE_VOZ_URL', 'https://agente.ai-you.io/v1/agente-voz')
+        token = os.getenv('AGENTE_VOZ_TOKEN', '')
+        id_plantilla_raw = os.getenv('AGENTE_VOZ_ID_PLANTILLA', '')
+        if not token or not id_plantilla_raw:
+            return JSONResponse(
+                {'codigo': 'agente_voz_no_configurado', 'msg': 'Falta AGENTE_VOZ_TOKEN/AGENTE_VOZ_ID_PLANTILLA en el servidor.'},
+                status_code=503,
+            )
+        try:
+            id_plantilla = int(id_plantilla_raw)
+        except ValueError:
+            return JSONResponse({'codigo': 'agente_voz_no_configurado', 'msg': 'AGENTE_VOZ_ID_PLANTILLA no es numérico.'}, status_code=503)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        variables = body.get('variables') if isinstance(body, dict) else None
+        if not isinstance(variables, dict):
+            variables = {}
+        status, payload = await asyncio.to_thread(_post_to_agente_voz, base_url, token, id_plantilla, variables)
+        logger.info('[web] agente_voz sesion proxy -> status=%d', status)
         return JSONResponse(payload, status_code=status)
 
     @app.websocket('/ws')

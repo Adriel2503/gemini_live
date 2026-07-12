@@ -22,6 +22,7 @@
       --cyan: #22d3ee;
       --danger: #ef4444;
       --call: #6366f1;
+      --agente: #16a34a;
     }
     * { box-sizing: border-box; }
     html { -webkit-text-size-adjust: 100%; }
@@ -75,6 +76,8 @@
     #toggle { background: var(--accent-strong); width: 100%; }
     #toggle.on { background: var(--danger); }
     #callBtn { background: var(--call); }
+    #toggleAgente { background: var(--agente); width: 100%; }
+    #toggleAgente.on { background: var(--danger); }
 
     select, input[type="tel"] {
       flex: 1; min-width: 140px; background: var(--card-bg); color: var(--text); border: 1px solid var(--border);
@@ -182,6 +185,7 @@
     <div class="tabs" id="tabs" role="tablist">
       <button class="tab-btn active" id="tabBrowser" data-tab="browser" role="tab" aria-selected="true">🎙️ Desde el navegador</button>
       <button class="tab-btn" id="tabCall" data-tab="call" role="tab" aria-selected="false" hidden>📞 Por teléfono</button>
+      <button class="tab-btn" id="tabAgenteVoz" data-tab="agente-voz" role="tab" aria-selected="false" hidden>🤖 Agente Voz</button>
     </div>
 
     <!-- Modo 1: hablar desde el navegador -->
@@ -209,6 +213,19 @@
         <span class="prefix">+51</span>
         <input type="tel" id="phone" placeholder="987654321" maxlength="9" inputmode="numeric" />
         <button id="callBtn">Llamar</button>
+      </div>
+    </section>
+
+    <!-- Modo 3: probar agente_voz directo desde el navegador (sin telefono) -->
+    <section class="panel" id="panel-agente-voz" data-panel="agente-voz" role="tabpanel" hidden>
+      <div class="panel-title"><span class="ico">🤖</span> Agente Voz (diagnóstico)</div>
+      <div class="panel-hint">Habla directo contra el gateway agente_voz (prompt real, tools y tipificación de la plantilla configurada) — sin pasar por teléfono ni por el Gemini de esta demo.</div>
+      <div class="row">
+        <button id="toggleAgente">Iniciar conversación</button>
+      </div>
+      <div class="status">
+        <span class="dot" id="dotAgente"></span>
+        <span id="stateAgente">Desconectado</span>
       </div>
     </section>
 
