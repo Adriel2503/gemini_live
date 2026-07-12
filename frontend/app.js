@@ -446,10 +446,28 @@ async function startAgenteVoz() {
 
   let sesion;
   try {
+    // Variables de prueba fijas: cubren los campos requeridos por la plantilla
+    // 139 de Credicash (DEPARTAMENTO/PROVINCIA/DISTRITO/OFERTA_CREDICASH/lead_id).
+    // Si el server apunta a otra plantilla, estos valores no aplican.
     const res = await fetch('/agente-voz/sesion', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ variables: {} }),
+      body: JSON.stringify({
+        variables: {
+          nombre: 'Ariel',
+          lead_id: '123456',
+          DEPARTAMENTO: 'LIMA',
+          PROVINCIA: 'LIMA',
+          DISTRITO: 'SURCO',
+          OFERTA_CREDICASH: '5000',
+          telefono: '999999999',
+          correo: 'test@example.com',
+          tipo_documento: 'DNI',
+          numero_documento: '12345678',
+          PLAZO_CREDICASH: '12',
+          TASA_CREDICASH: '2.5',
+        },
+      }),
     });
     sesion = await res.json();
     if (!res.ok || !sesion.ws_url) {
