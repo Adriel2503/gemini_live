@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from gemini_live_demo.core.audio import (
     chunk_pcm_bytes,
@@ -27,7 +28,7 @@ class MockLiveSession:
         self.prompt = prompt
         self._last_input = ''
 
-    async def __aenter__(self) -> 'MockLiveSession':
+    async def __aenter__(self) -> MockLiveSession:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:

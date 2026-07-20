@@ -62,7 +62,7 @@ class Settings:
         return max(1, int(self.input_sample_rate * self.chunk_ms / 1000))
 
     @classmethod
-    def from_env(cls) -> 'Settings':
+    def from_env(cls) -> Settings:
         """Construye la config leyendo el entorno (y ``.env`` si existe)."""
         from dotenv import load_dotenv
 

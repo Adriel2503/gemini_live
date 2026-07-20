@@ -20,8 +20,8 @@ import sounddevice as sd
 from rich.console import Console
 from rich.panel import Panel
 
-from gemini_live_demo.core.audio import ensure_mono, float32_to_int16, normalize_language_code
 from gemini_live_demo.cli.audio_io import StreamingAudioPlayer, capture_until_enter, play_pcm
+from gemini_live_demo.core.audio import ensure_mono, float32_to_int16, normalize_language_code
 from gemini_live_demo.core.config import Settings
 from gemini_live_demo.core.events import EventSummary, summarize_event
 from gemini_live_demo.core.metrics import MetricsCsv, build_metrics_row
@@ -414,7 +414,6 @@ class DemoRunner:
             started = time.perf_counter()
             response_audio: list[bytes] = []
             response_text_parts: list[str] = []
-            last_summary: EventSummary | None = None
             model_turn_seen = False
             generation_complete_seen = False
             turn_complete_seen = False
@@ -439,7 +438,6 @@ class DemoRunner:
                 async for event in self.adapter.receive(self._session):
                     event_count += 1
                     summary = summarize_event(event)
-                    last_summary = summary
                     self.adapter.note_event(summary)
                     model_turn_seen = model_turn_seen or summary.model_turn_present
                     generation_complete_seen = generation_complete_seen or summary.generation_complete

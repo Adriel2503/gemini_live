@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 from gemini_live_demo.core.events import summarize_event
 
-
 # --- Ruta dict --------------------------------------------------------------
 
 def test_dict_extracts_text_and_generation_complete():

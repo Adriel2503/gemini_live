@@ -26,6 +26,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
@@ -81,6 +82,39 @@ FRONTEND_DIR = _find_frontend_dir()
 ASSET_VERSION = _compute_asset_version(FRONTEND_DIR)
 
 
+def _post_json(
+    url: str,
+    payload: dict,
+    headers: dict[str, str],
+    *,
+    on_http_error: Callable[[urllib.error.HTTPError], dict],
+    on_connection_error: Callable[[Exception], dict],
+    timeout: int = 15,
+) -> tuple[int, dict]:
+    """POST sincrónico JSON->JSON (se corre en un thread). Sin lógica de dominio.
+
+    Los callers deciden el shape del error via ``on_http_error``/
+    ``on_connection_error`` porque cada servicio externo (bridge, agente_voz)
+    ya tiene su propio formato de error establecido.
+    """
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers=headers,
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read().decode())
+        except Exception:
+            return exc.code, on_http_error(exc)
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return 502, on_connection_error(exc)
+
+
 def _post_to_bridge(bridge_url: str, token: str, number: str, model: str = '') -> tuple[int, dict]:
     """POST sincrónico al bridge de Asterisk (se corre en un thread).
 
@@ -89,23 +123,13 @@ def _post_to_bridge(bridge_url: str, token: str, number: str, model: str = '') -
     payload = {'number': number}
     if model:
         payload['model'] = model
-    req = urllib.request.Request(
+    return _post_json(
         bridge_url.rstrip('/') + '/call',
-        data=json.dumps(payload).encode(),
-        headers={'Content-Type': 'application/json', 'X-Bridge-Token': token},
-        method='POST',
+        payload,
+        {'Content-Type': 'application/json', 'X-Bridge-Token': token},
+        on_http_error=lambda exc: {'success': False, 'error': f'bridge respondio HTTP {exc.code}'},
+        on_connection_error=lambda exc: {'success': False, 'error': f'no se pudo contactar al bridge: {exc}'},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return resp.status, json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        try:
-            payload = json.loads(exc.read().decode())
-        except Exception:
-            payload = {'success': False, 'error': f'bridge respondio HTTP {exc.code}'}
-        return exc.code, payload
-    except (urllib.error.URLError, TimeoutError) as exc:
-        return 502, {'success': False, 'error': f'no se pudo contactar al bridge: {exc}'}
 
 
 def _post_to_agente_voz(base_url: str, token: str, id_plantilla: int, variables: dict) -> tuple[int, dict]:
@@ -115,23 +139,13 @@ def _post_to_agente_voz(base_url: str, token: str, id_plantilla: int, variables:
     servidor, el navegador nunca lo ve.
     """
     payload = {'id_plantilla': id_plantilla, 'codec': 'pcm_s16le_16k', 'variables': variables}
-    req = urllib.request.Request(
+    return _post_json(
         base_url.rstrip('/') + '/sesiones',
-        data=json.dumps(payload).encode(),
-        headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'},
-        method='POST',
+        payload,
+        {'Content-Type': 'application/json', 'Authorization': f'Bearer {token}'},
+        on_http_error=lambda exc: {'codigo': 'error_agente_voz', 'msg': f'agente_voz respondio HTTP {exc.code}'},
+        on_connection_error=lambda exc: {'codigo': 'error_agente_voz', 'msg': f'no se pudo contactar a agente_voz: {exc}'},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return resp.status, json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        try:
-            payload = json.loads(exc.read().decode())
-        except Exception:
-            payload = {'codigo': 'error_agente_voz', 'msg': f'agente_voz respondio HTTP {exc.code}'}
-        return exc.code, payload
-    except (urllib.error.URLError, TimeoutError) as exc:
-        return 502, {'codigo': 'error_agente_voz', 'msg': f'no se pudo contactar a agente_voz: {exc}'}
 
 
 async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:

@@ -57,6 +57,7 @@ def resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.
     if source_rate == target_rate:
         return audio
     from math import gcd
+
     from scipy.signal import resample_poly
 
     factor = gcd(source_rate, target_rate)
