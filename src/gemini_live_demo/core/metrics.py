@@ -13,10 +13,34 @@ from __future__ import annotations
 import csv
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger('gemini_live_demo')
+
+
+@dataclass
+class StreamStats:
+    """Acumuladores del envio de audio del microfono (modo continuo)."""
+
+    send_chunks: int = 0
+    send_bytes: int = 0
+    send_total_ms: float = 0.0
+    send_max_ms: float = 0.0
+    send_over_budget_count: int = 0
+    send_while_model_speaking_chunks: int = 0
+    model_speaking: bool = False
+
+
+@dataclass
+class VadStats:
+    """Ultima senal de VAD (voice activity detection) observada."""
+
+    start_count: int = 0
+    end_count: int = 0
+    last_type: str | None = None
+    last_offset: str | None = None
 
 
 # Orden de columnas del CSV. Es también el contrato que validan los tests:
@@ -115,8 +139,8 @@ def build_metrics_row(
     turn_duration_ms: int,
     max_queue_size: int,
     dropped_chunks: int,
-    stream_stats: dict[str, Any],
-    vad_stats: dict[str, Any],
+    stream_stats: StreamStats,
+    vad_stats: VadStats,
     player: Any,
     player_elapsed_ms: float,
     created_at: str,
@@ -149,12 +173,12 @@ def build_metrics_row(
         'max_queue_size': max_queue_size,
         'max_queue_delay_ms': max_queue_size * settings.chunk_ms,
         'dropped_chunks': dropped_chunks,
-        'send_chunks': stream_stats['send_chunks'],
-        'send_bytes': stream_stats['send_bytes'],
-        'send_avg_ms': round(stream_stats['send_total_ms'] / max(1, stream_stats['send_chunks']), 3),
-        'send_max_ms': round(stream_stats['send_max_ms'], 3),
-        'send_over_budget_count': stream_stats['send_over_budget_count'],
-        'send_while_model_speaking_chunks': stream_stats['send_while_model_speaking_chunks'],
+        'send_chunks': stream_stats.send_chunks,
+        'send_bytes': stream_stats.send_bytes,
+        'send_avg_ms': round(stream_stats.send_total_ms / max(1, stream_stats.send_chunks), 3),
+        'send_max_ms': round(stream_stats.send_max_ms, 3),
+        'send_over_budget_count': stream_stats.send_over_budget_count,
+        'send_while_model_speaking_chunks': stream_stats.send_while_model_speaking_chunks,
         'playback_max_queue_size': player.max_queue_size,
         'playback_interrupted_dropped_chunks': player.interrupted_dropped_chunks,
         'playback_received_audio_ms': round(player.received_audio_ms, 1),
@@ -165,9 +189,9 @@ def build_metrics_row(
         'playback_stream_sample_rate': player.stream_sample_rate,
         'playback_last_chunk_ms': round(player.last_chunk_ms, 3),
         'playback_write_max_ms': round(player.write_max_ms, 3),
-        'vad_start_count': vad_stats['start_count'],
-        'vad_end_count': vad_stats['end_count'],
-        'vad_last_type': vad_stats['last_type'],
-        'vad_last_audio_offset': vad_stats['last_offset'],
+        'vad_start_count': vad_stats.start_count,
+        'vad_end_count': vad_stats.end_count,
+        'vad_last_type': vad_stats.last_type,
+        'vad_last_audio_offset': vad_stats.last_offset,
         'created_at': created_at,
     }

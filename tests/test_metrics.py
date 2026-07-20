@@ -17,6 +17,8 @@ from types import SimpleNamespace
 from gemini_live_demo.core.metrics import (
     METRICS_FIELDNAMES,
     MetricsCsv,
+    StreamStats,
+    VadStats,
     build_metrics_row,
 )
 
@@ -59,13 +61,13 @@ def _stream_stats(**overrides):
         send_while_model_speaking_chunks=1,
     )
     base.update(overrides)
-    return base
+    return StreamStats(**base)
 
 
 def _vad_stats(**overrides):
     base = dict(start_count=2, end_count=2, last_type='END', last_offset='1234')
     base.update(overrides)
-    return base
+    return VadStats(**base)
 
 
 def _row(**overrides):

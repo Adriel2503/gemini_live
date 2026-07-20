@@ -12,6 +12,7 @@ import logging
 import queue
 import time
 from contextlib import suppress
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,37 +25,66 @@ from gemini_live_demo.cli.audio_io import StreamingAudioPlayer, capture_until_en
 from gemini_live_demo.core.audio import ensure_mono, float32_to_int16, normalize_language_code
 from gemini_live_demo.core.config import Settings
 from gemini_live_demo.core.events import EventSummary, summarize_event
-from gemini_live_demo.core.metrics import MetricsCsv, build_metrics_row
+from gemini_live_demo.core.metrics import MetricsCsv, StreamStats, VadStats, build_metrics_row
 from gemini_live_demo.core.session import GeminiLiveAdapter
 
 console = Console()
 logger = logging.getLogger('gemini_live_demo')
 
 
-def _new_turn_state() -> dict[str, Any]:
+@dataclass
+class TurnState:
     """Acumuladores de un turno en curso (modo continuo). Se resetea por turno."""
-    return {
-        'event_count': 0,
-        'response_audio_chunks': 0,
-        'response_audio_bytes': 0,
-        'text_parts': [],
-        'turn_started_at': None,
-        'first_audio_at': None,
-        'interrupted_seen': False,
-    }
+
+    event_count: int = 0
+    response_audio_chunks: int = 0
+    response_audio_bytes: int = 0
+    text_parts: list[str] = field(default_factory=list)
+    turn_started_at: float | None = None
+    first_audio_at: float | None = None
+    interrupted_seen: bool = False
 
 
-def _note_vad_signal(summary: EventSummary, vad_stats: dict[str, Any]) -> None:
+@dataclass
+class DroppedChunksStats:
+    """Chunks de microfono descartados por cola llena (backpressure)."""
+
+    count: int = 0
+
+
+@dataclass
+class QueueStats:
+    """Pico historico de la cola de audio saliente hacia Gemini."""
+
+    max_size: int = 0
+
+
+@dataclass
+class ContinuousSessionStats:
+    """Agrupa las 4 stats que viven toda la sesion del modo continuo.
+
+    Se arma una vez al abrir ``_continuous_loop`` y se pasa por referencia a
+    las dos tasks concurrentes (``send_microphone``/``receive_model``) y al
+    callback del microfono; cada uno muta solo los campos que le corresponden.
+    """
+
+    dropped: DroppedChunksStats = field(default_factory=DroppedChunksStats)
+    queue: QueueStats = field(default_factory=QueueStats)
+    stream: StreamStats = field(default_factory=StreamStats)
+    vad: VadStats = field(default_factory=VadStats)
+
+
+def _note_vad_signal(summary: EventSummary, vad_stats: VadStats) -> None:
     """Actualiza los contadores de VAD (in-place) a partir de un evento."""
     vad_type = summary.voice_activity_type or summary.vad_signal_type
     if not vad_type:
         return
-    vad_stats['last_type'] = vad_type
-    vad_stats['last_offset'] = summary.voice_activity_offset
+    vad_stats.last_type = vad_type
+    vad_stats.last_offset = summary.voice_activity_offset
     if 'START' in vad_type or 'SOS' in vad_type:
-        vad_stats['start_count'] += 1
+        vad_stats.start_count += 1
     if 'END' in vad_type or 'EOS' in vad_type:
-        vad_stats['end_count'] += 1
+        vad_stats.end_count += 1
     logger.debug('[vad] type=%s offset=%s', vad_type, summary.voice_activity_offset)
 
 
@@ -64,11 +94,8 @@ def _finalize_turn(
     turn_index: int,
     now: float,
     summary: EventSummary,
-    turn_state: dict[str, Any],
-    queue_stats: dict[str, int],
-    dropped_chunks: dict[str, int],
-    stream_stats: dict[str, Any],
-    vad_stats: dict[str, Any],
+    turn_state: TurnState,
+    stats: ContinuousSessionStats,
     player: StreamingAudioPlayer,
     session_id: str,
     metrics: MetricsCsv,
@@ -78,12 +105,12 @@ def _finalize_turn(
 
     Si el marcador de fin de turno no trae contenido (ni texto, ni audio, ni
     interrupción) se considera vacío y se ignora sin incrementar turn_index
-    (y sin resetear ``queue_stats['max_size']``: el backlog sigue siendo el
+    (y sin resetear ``stats.queue.max_size``: el backlog sigue siendo el
     de la conversación en curso, no el de un marcador vacío).
     """
-    response_text = ''.join(turn_state['text_parts']).strip()
+    response_text = ''.join(turn_state.text_parts).strip()
     has_turn_payload = bool(
-        response_text or turn_state['response_audio_chunks'] or turn_state['interrupted_seen']
+        response_text or turn_state.response_audio_chunks or turn_state.interrupted_seen
     )
     if not has_turn_payload:
         logger.info(
@@ -94,25 +121,25 @@ def _finalize_turn(
         return turn_index
 
     turn_index += 1
-    turn_started_at = turn_state['turn_started_at']
-    first_audio_at = turn_state['first_audio_at']
+    turn_started_at = turn_state.turn_started_at
+    first_audio_at = turn_state.first_audio_at
     elapsed_ms = int((now - turn_started_at) * 1000) if turn_started_at is not None else 0
     first_audio_latency_ms = (
         int((first_audio_at - turn_started_at) * 1000)
         if first_audio_at is not None and turn_started_at is not None
         else None
     )
-    max_queue_size = queue_stats['max_size']
+    max_queue_size = stats.queue.max_size
     logger.info(
         '[live] turn done events=%d text=%s audio_chunks=%d audio_bytes=%d first_audio_latency_ms=%s duration_ms=%d max_queue_size=%d dropped_chunks=%d generation_complete=%s turn_complete=%s',
-        turn_state['event_count'],
+        turn_state.event_count,
         'yes' if response_text else 'no',
-        turn_state['response_audio_chunks'],
-        turn_state['response_audio_bytes'],
+        turn_state.response_audio_chunks,
+        turn_state.response_audio_bytes,
         first_audio_latency_ms if first_audio_latency_ms is not None else 'n/a',
         elapsed_ms,
         max_queue_size,
-        dropped_chunks['count'],
+        stats.dropped.count,
         'yes' if summary.generation_complete else 'no',
         'yes' if summary.turn_complete else 'no',
     )
@@ -122,28 +149,28 @@ def _finalize_turn(
             session_id=session_id,
             turn_index=turn_index,
             language=normalize_language_code(settings.language, settings.model),
-            event_count=turn_state['event_count'],
+            event_count=turn_state.event_count,
             response_text=response_text,
-            response_audio_chunks=turn_state['response_audio_chunks'],
-            response_audio_bytes=turn_state['response_audio_bytes'],
+            response_audio_chunks=turn_state.response_audio_chunks,
+            response_audio_bytes=turn_state.response_audio_bytes,
             generation_complete=summary.generation_complete,
             turn_complete=summary.turn_complete,
-            interrupted=turn_state['interrupted_seen'],
+            interrupted=turn_state.interrupted_seen,
             first_audio_latency_ms=first_audio_latency_ms,
             turn_duration_ms=elapsed_ms,
             max_queue_size=max_queue_size,
-            dropped_chunks=dropped_chunks['count'],
-            stream_stats=stream_stats,
-            vad_stats=vad_stats,
+            dropped_chunks=stats.dropped.count,
+            stream_stats=stats.stream,
+            vad_stats=stats.vad,
             player=player,
             player_elapsed_ms=(time.perf_counter() - player.started_at) * 1000,
             created_at=time.strftime('%Y-%m-%dT%H:%M:%S'),
         )
     )
-    stream_stats['model_speaking'] = False
+    stats.stream.model_speaking = False
     if response_text:
         logger.info('[live] gemini_text=%s', response_text)
-    queue_stats['max_size'] = audio_queue.qsize()
+    stats.queue.max_size = audio_queue.qsize()
     return turn_index
 
 
@@ -216,18 +243,7 @@ class DemoRunner:
 
         stop_event = asyncio.Event()
         audio_queue: queue.Queue[bytes] = queue.Queue(maxsize=self.settings.audio_queue_max_chunks)
-        dropped_chunks = {'count': 0}
-        queue_stats = {'max_size': 0}
-        stream_stats = {
-            'send_chunks': 0,
-            'send_bytes': 0,
-            'send_total_ms': 0.0,
-            'send_max_ms': 0.0,
-            'send_over_budget_count': 0,
-            'send_while_model_speaking_chunks': 0,
-            'model_speaking': False,
-        }
-        vad_stats = {'start_count': 0, 'end_count': 0, 'last_type': None, 'last_offset': None}
+        stats = ContinuousSessionStats()
         session_id = time.strftime('%Y%m%d_%H%M%S')
         metrics = MetricsCsv(self.settings)
         output_wav_path = None
@@ -248,7 +264,7 @@ class DemoRunner:
             try:
                 audio_queue.put_nowait(np.asarray(pcm, dtype=np.int16).tobytes())
             except queue.Full:
-                dropped_chunks['count'] += 1
+                stats.dropped.count += 1
 
         async def send_microphone() -> None:
             sent_chunks = 0
@@ -275,23 +291,23 @@ class DemoRunner:
                     await self.adapter.send_audio_chunk(self._session, chunk)
                     send_ms = (time.perf_counter() - send_started) * 1000
                     sent_chunks += 1
-                    stream_stats['send_chunks'] += 1
-                    stream_stats['send_bytes'] += len(chunk)
-                    stream_stats['send_total_ms'] += send_ms
-                    stream_stats['send_max_ms'] = max(stream_stats['send_max_ms'], send_ms)
+                    stats.stream.send_chunks += 1
+                    stats.stream.send_bytes += len(chunk)
+                    stats.stream.send_total_ms += send_ms
+                    stats.stream.send_max_ms = max(stats.stream.send_max_ms, send_ms)
                     if send_ms > self.settings.chunk_ms:
-                        stream_stats['send_over_budget_count'] += 1
-                    if stream_stats['model_speaking']:
-                        stream_stats['send_while_model_speaking_chunks'] += 1
+                        stats.stream.send_over_budget_count += 1
+                    if stats.stream.model_speaking:
+                        stats.stream.send_while_model_speaking_chunks += 1
                     queue_size = audio_queue.qsize()
-                    queue_stats['max_size'] = max(queue_stats['max_size'], queue_size)
+                    stats.queue.max_size = max(stats.queue.max_size, queue_size)
                     queue_delay_ms = queue_size * self.settings.chunk_ms
                     if queue_size >= self.settings.audio_queue_warn_chunks:
                         logger.debug(
                             '[mic] queue backlog queue_size=%d queue_delay_ms=%d dropped_chunks=%d',
                             queue_size,
                             queue_delay_ms,
-                            dropped_chunks['count'],
+                            stats.dropped.count,
                         )
                     if sent_chunks % self.settings.audio_queue_log_every_chunks == 0:
                         logger.debug(
@@ -299,17 +315,17 @@ class DemoRunner:
                             sent_chunks,
                             queue_size,
                             queue_delay_ms,
-                            dropped_chunks['count'],
-                            stream_stats['send_total_ms'] / max(1, stream_stats['send_chunks']),
-                            stream_stats['send_max_ms'],
-                            stream_stats['send_over_budget_count'],
-                            'yes' if stream_stats['model_speaking'] else 'no',
+                            stats.dropped.count,
+                            stats.stream.send_total_ms / max(1, stats.stream.send_chunks),
+                            stats.stream.send_max_ms,
+                            stats.stream.send_over_budget_count,
+                            'yes' if stats.stream.model_speaking else 'no',
                         )
-            logger.info('[mic] continuous stream closed chunks_sent=%d dropped_chunks=%d', sent_chunks, dropped_chunks['count'])
+            logger.info('[mic] continuous stream closed chunks_sent=%d dropped_chunks=%d', sent_chunks, stats.dropped.count)
 
         async def receive_model() -> None:
             turn_index = 0
-            turn_state = _new_turn_state()
+            turn_state = TurnState()
             while not stop_event.is_set():
                 assert self._session is not None
                 saw_event = False
@@ -318,26 +334,26 @@ class DemoRunner:
                     if stop_event.is_set():
                         break
                     now = time.perf_counter()
-                    turn_state['event_count'] += 1
-                    if turn_state['turn_started_at'] is None:
-                        turn_state['turn_started_at'] = now
+                    turn_state.event_count += 1
+                    if turn_state.turn_started_at is None:
+                        turn_state.turn_started_at = now
                     summary = summarize_event(event)
                     self.adapter.note_event(summary)
-                    _note_vad_signal(summary, vad_stats)
+                    _note_vad_signal(summary, stats.vad)
                     if summary.interrupted:
-                        turn_state['interrupted_seen'] = True
-                        stream_stats['model_speaking'] = False
+                        turn_state.interrupted_seen = True
+                        stats.stream.model_speaking = False
                         logger.warning('[live] interrupted=true')
                         player.interrupt()
                     if summary.text:
-                        turn_state['text_parts'].append(summary.text)
+                        turn_state.text_parts.append(summary.text)
                     if summary.audio_chunks:
-                        stream_stats['model_speaking'] = True
-                        if turn_state['first_audio_at'] is None:
-                            turn_state['first_audio_at'] = now
+                        stats.stream.model_speaking = True
+                        if turn_state.first_audio_at is None:
+                            turn_state.first_audio_at = now
                         for chunk in summary.audio_chunks:
-                            turn_state['response_audio_chunks'] += 1
-                            turn_state['response_audio_bytes'] += len(chunk)
+                            turn_state.response_audio_chunks += 1
+                            turn_state.response_audio_bytes += len(chunk)
                             player.write(chunk)
                     if summary.done:
                         turn_index = _finalize_turn(
@@ -346,16 +362,13 @@ class DemoRunner:
                             now=now,
                             summary=summary,
                             turn_state=turn_state,
-                            queue_stats=queue_stats,
-                            dropped_chunks=dropped_chunks,
-                            stream_stats=stream_stats,
-                            vad_stats=vad_stats,
+                            stats=stats,
                             player=player,
                             session_id=session_id,
                             metrics=metrics,
                             audio_queue=audio_queue,
                         )
-                        turn_state = _new_turn_state()
+                        turn_state = TurnState()
                     if summary.go_away:
                         stop_event.set()
                         break
