@@ -23,8 +23,9 @@ uv run gemini-live-demo run
 
 ## Interfaz web (navegador)
 
-Además del CLI, hay una interfaz web para conversar desde el navegador
-(micrófono del propio navegador, sin instalar nada del lado cliente).
+Además del CLI, hay una interfaz web (marca **Vox**) para conversar desde el
+navegador (micrófono del propio navegador, sin instalar nada del lado
+cliente).
 
 ```bash
 # Arranca el servidor web (FastAPI + WebSocket)
@@ -42,9 +43,18 @@ El modelo se elige por sesión desde la UI (se recuerda en el navegador); el
 `GEMINI_MODEL` del entorno queda como default. La lista de modelos elegibles
 está en `ALLOWED_MODELS` (allowlist server-side en `web/server.py`).
 
-La UI tiene dos paneles independientes: **"Desde el navegador"** (mic local)
-y **"Por teléfono"** (dispara una llamada real, ver siguiente sección). El
-panel de teléfono solo aparece si el servidor tiene `BRIDGE_URL` configurado.
+La UI es responsive y organiza el contenido en pestañas:
+
+- **🎙️ Desde el navegador** — mic local, siempre visible.
+- **📞 Por teléfono** — dispara una llamada real (ver siguiente sección);
+  solo aparece si el servidor tiene `BRIDGE_URL` configurado.
+- **🤖 Agente Voz** — diagnóstico del gateway `agente_voz` (ver sección
+  dedicada); solo aparece si el servidor tiene `AGENTE_VOZ_TOKEN` +
+  `AGENTE_VOZ_ID_PLANTILLA` configurados.
+
+Cada turno de la conversación muestra además el **consumo de tokens**
+desglosado por modalidad (audio vs. texto) para prompt y respuesta, además
+del total y los tokens cacheados.
 
 > **Micrófono y HTTPS:** el navegador solo permite el micrófono en `localhost`
 > o bajo **HTTPS**. En producción hay que servir la web por HTTPS (Dokploy lo
@@ -84,6 +94,30 @@ BRIDGE_TOKEN=<mismo-token-que-BRIDGE_TOKEN-en-asterisk-bridge>
 El detalle de cómo el bridge de Go arma el stream de audio (por qué rellena
 silencio, cómo detecta Gemini el fin del turno, etc.) está documentado en el
 repo `asterisk-bridge`, en `docs/audio-pipeline.md`.
+
+## Agente Voz (diagnóstico del gateway `agente_voz`)
+
+La pestaña **"🤖 Agente Voz"** es una herramienta de diagnóstico distinta a
+todo lo anterior: el navegador conversa **directo** contra el gateway
+`agente_voz` (prompt, tools y tipificación reales de una plantilla),
+**sin** pasar por el motor Gemini de esta demo (`core/session.py`).
+
+- `POST /agente-voz/sesion` (`web/server.py`) arma la sesión contra
+  `agente_voz` agregando el `AGENTE_VOZ_TOKEN` — el navegador nunca ve ese
+  token, mismo patrón que `BRIDGE_TOKEN`.
+- La respuesta incluye un `ws_url`: el navegador se conecta **directo** a esa
+  URL para el audio; este servidor no participa del audio de esa sesión, solo
+  arma la sesión inicial.
+- Sin `AGENTE_VOZ_TOKEN` + `AGENTE_VOZ_ID_PLANTILLA` configurados, la pestaña
+  ni siquiera aparece (`GET /models` expone `agente_voz_enabled`).
+
+Variables necesarias (en el `.env` de este servidor):
+
+```bash
+AGENTE_VOZ_URL=https://agente.ai-you.io/v1/agente-voz  # default, normalmente no hace falta pisarlo
+AGENTE_VOZ_TOKEN=<token-del-gateway-agente_voz>
+AGENTE_VOZ_ID_PLANTILLA=<id-numerico-de-la-plantilla>
+```
 
 ## Que Gemini hable primero (saludo inicial)
 
@@ -173,6 +207,11 @@ GEMINI_TRANSCRIBE=true
 BRIDGE_URL=http://ip-del-servidor-asterisk:9094
 BRIDGE_TOKEN=CHANGE_ME
 
+# Agente Voz (diagnostico del gateway agente_voz, opcional)
+AGENTE_VOZ_URL=https://agente.ai-you.io/v1/agente-voz
+AGENTE_VOZ_TOKEN=CHANGE_ME
+AGENTE_VOZ_ID_PLANTILLA=139
+
 # Cola de audio (diagnostico, CLI)
 GEMINI_AUDIO_QUEUE_MAX_CHUNKS=200
 GEMINI_AUDIO_QUEUE_LOG_EVERY_CHUNKS=250
@@ -250,3 +289,11 @@ docker compose up --build
 
 El WebSocket viaja como `wss://` (seguro) y Traefik proxya el *upgrade* sin
 configuración extra.
+
+### Cache de estáticos tras un deploy
+
+`index.html` se sirve con `/static/app.js?v=<hash-del-contenido>`: el hash
+(`ASSET_VERSION` en `web/server.py`) cambia solo cuando cambia `app.js`, así
+que esa URL versionada se cachea para siempre (`immutable`, 1 año) sin riesgo
+de servir un JS viejo después de un deploy. Un pedido a `/static/*` sin el
+`v` vigente (link viejo, favicon) sigue sin cachearse.
