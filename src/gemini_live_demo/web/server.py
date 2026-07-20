@@ -19,6 +19,7 @@ Protocolo del WebSocket ``/ws``:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -30,7 +31,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from gemini_live_demo.core.config import Settings
@@ -63,7 +64,21 @@ def _find_frontend_dir() -> Path:
     return Path.cwd() / 'frontend'
 
 
+def _compute_asset_version(frontend_dir: Path) -> str:
+    """Hash del contenido de ``app.js`` para cache-busting.
+
+    Cambia solo cuando el archivo cambia (nuevo deploy), no en cada request:
+    permite cachear ``/static/app.js?v=<hash>`` de forma inmutable y eterna
+    sin arriesgarse a servir un JS viejo tras actualizar el frontend.
+    """
+    app_js = frontend_dir / 'app.js'
+    if not app_js.is_file():
+        return 'dev'
+    return hashlib.sha256(app_js.read_bytes()).hexdigest()[:10]
+
+
 FRONTEND_DIR = _find_frontend_dir()
+ASSET_VERSION = _compute_asset_version(FRONTEND_DIR)
 
 
 def _post_to_bridge(bridge_url: str, token: str, number: str, model: str = '') -> tuple[int, dict]:
@@ -229,21 +244,28 @@ def create_app() -> FastAPI:
     app = FastAPI(title='Gemini Live Web')
 
     @app.middleware('http')
-    async def no_cache_static(request: Request, call_next):
-        """Evita que el navegador sirva ``/static/*`` cacheado tras un deploy.
+    async def cache_static(request: Request, call_next):
+        """Cachea ``/static/*`` de forma distinta segun venga versionado o no.
 
-        ``StaticFiles`` no manda ningun header de cache por defecto; el
-        navegador cachea con heuristica propia (Last-Modified) y puede seguir
-        sirviendo un ``app.js`` viejo hasta un hard-refresh manual.
+        ``index()`` sirve ``app.js`` con ``?v=<hash-del-contenido>``: como el
+        hash cambia solo cuando el archivo cambia (nuevo deploy), esa URL es
+        inmutable y se puede cachear para siempre sin riesgo de servir un JS
+        viejo. Un pedido a ``/static/*`` sin el ``v`` vigente (link viejo,
+        favicon, acceso directo) sigue sin cachear, como antes.
         """
         response = await call_next(request)
         if request.url.path.startswith('/static/'):
-            response.headers['Cache-Control'] = 'no-cache'
+            if request.query_params.get('v') == ASSET_VERSION:
+                response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            else:
+                response.headers['Cache-Control'] = 'no-cache'
         return response
 
     @app.get('/')
-    async def index() -> FileResponse:
-        return FileResponse(FRONTEND_DIR / 'index.html')
+    async def index() -> HTMLResponse:
+        html = (FRONTEND_DIR / 'index.html').read_text(encoding='utf-8')
+        html = html.replace('/static/app.js', f'/static/app.js?v={ASSET_VERSION}')
+        return HTMLResponse(html)
 
     @app.get('/favicon.ico')
     async def favicon() -> FileResponse:

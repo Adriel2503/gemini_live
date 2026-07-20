@@ -274,7 +274,7 @@ def test_models_expone_agente_voz_enabled(monkeypatch):
 
 
 def test_static_no_cache_header():
-    """``/static/*`` manda Cache-Control: no-cache para evitar JS viejo tras un deploy."""
+    """``/static/app.js`` SIN el ``?v=`` vigente manda no-cache (link viejo/directo)."""
     from fastapi.testclient import TestClient
 
     from gemini_live_demo.web.server import app
@@ -282,6 +282,28 @@ def test_static_no_cache_header():
     res = TestClient(app).get('/static/app.js')
     assert res.status_code == 200
     assert res.headers['cache-control'] == 'no-cache'
+
+
+def test_static_versioned_asset_is_cached_forever():
+    """``/static/app.js?v=<ASSET_VERSION>`` es inmutable: cache eterno."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import ASSET_VERSION, app
+
+    res = TestClient(app).get(f'/static/app.js?v={ASSET_VERSION}')
+    assert res.status_code == 200
+    assert res.headers['cache-control'] == 'public, max-age=31536000, immutable'
+
+
+def test_index_references_versioned_asset():
+    """``/`` sirve ``index.html`` con el ``app.js`` versionado (cache-busting)."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web.server import ASSET_VERSION, app
+
+    res = TestClient(app).get('/')
+    assert res.status_code == 200
+    assert f'/static/app.js?v={ASSET_VERSION}' in res.text
 
 
 def test_bridge_browser_to_gemini():
