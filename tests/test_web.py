@@ -258,6 +258,66 @@ def test_agente_voz_sesion_sin_variables_manda_dict_vacio(monkeypatch):
     assert seen['variables'] == {}
 
 
+def test_sanitize_variables_descarta_tipos_no_escalares():
+    from gemini_live_demo.web.server import _sanitize_variables
+
+    result = _sanitize_variables({'nombre': 'Juan', 'anidado': {'a': 1}, 'lista': [1, 2], 'nulo': None})
+    assert result == {'nombre': 'Juan'}
+
+
+def test_sanitize_variables_trunca_strings_largos():
+    from gemini_live_demo.web.server import _sanitize_variables
+
+    result = _sanitize_variables({'nota': 'x' * 1000})
+    assert result == {'nota': 'x' * 500}
+
+
+def test_sanitize_variables_limita_cantidad_de_keys():
+    from gemini_live_demo.web.server import _sanitize_variables
+
+    raw = {f'k{i}': i for i in range(50)}
+    result = _sanitize_variables(raw)
+    assert len(result) == 30
+
+
+def test_sanitize_variables_descarta_keys_invalidas():
+    from gemini_live_demo.web.server import _sanitize_variables
+
+    result = _sanitize_variables({'ok': 1, '': 'vacia', 'x' * 100: 'muy_larga', 42: 'no_string_key'})
+    assert result == {'ok': 1}
+
+
+def test_sanitize_variables_conserva_bool_int_float():
+    from gemini_live_demo.web.server import _sanitize_variables
+
+    result = _sanitize_variables({'activo': True, 'edad': 30, 'saldo': 12.5})
+    assert result == {'activo': True, 'edad': 30, 'saldo': 12.5}
+
+
+def test_agente_voz_sesion_sanitiza_variables_antes_de_reenviar(monkeypatch):
+    """El endpoint filtra 'variables' con _sanitize_variables antes del proxy."""
+    from fastapi.testclient import TestClient
+
+    from gemini_live_demo.web import server
+
+    seen = {}
+
+    def fake_post(base_url, token, id_plantilla, variables):
+        seen['variables'] = variables
+        return 201, {'session_id': 'ses_abc'}
+
+    monkeypatch.setenv('AGENTE_VOZ_TOKEN', 'tok123')
+    monkeypatch.setenv('AGENTE_VOZ_ID_PLANTILLA', '139')
+    monkeypatch.setattr(server, '_post_to_agente_voz', fake_post)
+
+    res = TestClient(server.app).post(
+        '/agente-voz/sesion',
+        json={'variables': {'lead_id': '1', 'anidado': {'a': 1}}},
+    )
+    assert res.status_code == 201
+    assert seen['variables'] == {'lead_id': '1'}
+
+
 def test_models_expone_agente_voz_enabled(monkeypatch):
     """``agente_voz_enabled`` refleja si TOKEN e ID_PLANTILLA están configurados."""
     from fastapi.testclient import TestClient

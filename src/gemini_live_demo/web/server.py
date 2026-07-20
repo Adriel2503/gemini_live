@@ -148,6 +148,35 @@ def _post_to_agente_voz(base_url: str, token: str, id_plantilla: int, variables:
     )
 
 
+_MAX_VARIABLES = 30
+_MAX_KEY_LEN = 64
+_MAX_VALUE_LEN = 500
+
+
+def _sanitize_variables(raw: object) -> dict[str, str | int | float | bool]:
+    """Acota lo que el navegador puede inyectar en la plantilla de agente_voz.
+
+    Este servidor no conoce las variables que espera cada ``id_plantilla``,
+    asi que solo evita abuso (payloads gigantes, tipos anidados): acepta un
+    dict plano de escalares, tamano acotado, y descarta el resto en silencio.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str | int | float | bool] = {}
+    for key, value in raw.items():
+        if len(out) >= _MAX_VARIABLES:
+            break
+        if not isinstance(key, str) or not key or len(key) > _MAX_KEY_LEN:
+            continue
+        if isinstance(value, bool):
+            out[key] = value
+        elif isinstance(value, str):
+            out[key] = value[:_MAX_VALUE_LEN]
+        elif isinstance(value, (int, float)):
+            out[key] = value
+    return out
+
+
 async def _bridge(ws: WebSocket, adapter: GeminiLiveAdapter) -> None:
     """Puente bidireccional navegador <-> Gemini para una conexion.
 
@@ -353,9 +382,7 @@ def create_app() -> FastAPI:
             body = await request.json()
         except Exception:
             body = {}
-        variables = body.get('variables') if isinstance(body, dict) else None
-        if not isinstance(variables, dict):
-            variables = {}
+        variables = _sanitize_variables(body.get('variables') if isinstance(body, dict) else None)
         status, payload = await asyncio.to_thread(_post_to_agente_voz, base_url, token, id_plantilla, variables)
         logger.info('[web] agente_voz sesion proxy -> status=%d', status)
         return JSONResponse(payload, status_code=status)
